@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+* {
+  @apply selection:bg-purple-500 selection:text-white;
+}
+
+html {
+  @apply scroll-smooth;
+}
+
+body {
+  @apply bg-slate-950 text-slate-50 font-sans antialiased;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  @apply w-2 h-2;
+}
+
+::-webkit-scrollbar-track {
+  @apply bg-slate-900;
+}
+
+::-webkit-scrollbar-thumb {
+  @apply bg-slate-700 rounded hover:bg-slate-600;
+}
+
+/* Smooth transitions */
+button,
+input,
+select,
+textarea {
+  @apply transition-all duration-200;
+}
+
+/* Animations */
+@keyframes pulse-glow {
+  0%, 100% {
+    @apply opacity-100;
+  }
+  50% {
+    @apply opacity-75;
+  }
+}
+
+@keyframes slide-in {
+  from {
+    @apply opacity-0 -translate-y-4;
+  }
+  to {
+    @apply opacity-100 translate-y-0;
+  }
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+.animate-slide-in {
+  animation: slide-in 0.3s ease-out;
+}
