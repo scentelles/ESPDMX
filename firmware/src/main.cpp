@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <esp_freertos_hooks.h>
 #include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
@@ -13,6 +14,7 @@
 
 // Global objects
 AsyncWebServer server(WEB_PORT);
+AsyncWebSocket ws("/ws");
 DNSServer dnsServer;
 DMXEngine dmxEngine;
 ConfigManager configManager;
@@ -47,12 +49,28 @@ uint32_t lastUpdate = 0;
 uint32_t smokeEndTime = 0;
 uint32_t lastDisplayUpdate = 0;
 
-// CPU load measurement
-volatile uint32_t loopCounter = 0;
+// CPU load measurement (FreeRTOS idle-task based, both cores)
+// Self-calibrating: the max idle delta observed becomes the 100% idle reference
+volatile uint32_t idleCount0 = 0;
+volatile uint32_t idleCount1 = 0;
 uint32_t lastCpuCalcTime = 0;
-uint32_t loopsPerSecond = 0;
-const uint32_t MAX_LOOPS_PER_SEC = 100;  // calibrated baseline (with delay(10))
+uint32_t prevIdle0 = 0;
+uint32_t prevIdle1 = 0;
+uint32_t maxIdle0 = 0;
+uint32_t maxIdle1 = 0;
 uint8_t cpuLoadPercent = 0;
+
+bool idleHook0(void) {
+  idleCount0++;
+  return false;
+}
+bool idleHook1(void) {
+  idleCount1++;
+  return false;
+}
+
+// Body buffer for chunked POST requests (AsyncWebServer delivers body in chunks)
+String bodyBuffer;
 
 // Forward declarations
 void setupWiFi();
@@ -61,10 +79,16 @@ void applyScene(const String& sceneId);
 void applySceneValues(Scene* scene, float blend = 1.0f, Scene* fromScene = nullptr);
 void updateShowPlayback();
 void handleNotFound(AsyncWebServerRequest* request);
+void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client,
+              AwsEventType type, void* arg, uint8_t* data, size_t len);
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  
+  // Register idle hooks for CPU load measurement (both cores)
+  esp_register_freertos_idle_hook_for_cpu(idleHook0, 0);
+  esp_register_freertos_idle_hook_for_cpu(idleHook1, 1);
   
   Serial.println("\n\nDMXESP - Professional DMX Lighting Controller");
   Serial.println("Initializing...");
@@ -96,6 +120,12 @@ void setup() {
     if (f.enabled) {
       dmxEngine.addFixture(0, f.dmxAddress, f.channelCount);
       fixtureCount++;
+      Serial.printf("  Fixture '%s' [%s] addr=%d ch=%d\n", 
+        f.name.c_str(), f.id.c_str(), f.dmxAddress, f.channelCount);
+      for (const auto& ch : f.channels) {
+        Serial.printf("    ch '%s' offset=%d type=%s\n", 
+          ch.name.c_str(), ch.offset, ch.type.c_str());
+      }
     }
   }
   
@@ -126,6 +156,10 @@ void setup() {
   // Setup web server
   setupServer();
   
+  // WebSocket for real-time DMX control
+  ws.onEvent(onWsEvent);
+  server.addHandler(&ws);
+  
   server.begin();
   Serial.println("Web server started on port " + String(WEB_PORT));
   
@@ -134,6 +168,11 @@ void setup() {
   String ip = apMode ? WiFi.softAPIP().toString() : WiFi.localIP().toString();
   displayManager.showReady(ip, apMode);
   delay(2000); // Show ready screen briefly
+  
+  // Reset CPU measurement counters so first delta in loop() is clean
+  prevIdle0 = idleCount0;
+  prevIdle1 = idleCount1;
+  lastCpuCalcTime = millis();
 }
 
 void loop() {
@@ -142,8 +181,10 @@ void loop() {
     dnsServer.processNextRequest();
   }
 
-  // Update DMX engine
-  dmxEngine.update();
+  // DMX output runs in its own FreeRTOS task — no update() call needed here
+  
+  // Clean up disconnected WebSocket clients periodically
+  ws.cleanupClients();
   
   // Update audio manager and apply sound-reactive effects
   audioManager.update();
@@ -160,7 +201,8 @@ void loop() {
         if (ch.name == "Red") dmxEngine.setChannelValue(addr, (r * brightness) / 255);
         else if (ch.name == "Green") dmxEngine.setChannelValue(addr, (g * brightness) / 255);
         else if (ch.name == "Blue") dmxEngine.setChannelValue(addr, (b * brightness) / 255);
-        else if (ch.name == "Dimmer" || ch.name == "Master") dmxEngine.setChannelValue(addr, brightness);
+        else if (ch.name == "White") dmxEngine.setChannelValue(addr, (min(r, min(g, b)) * brightness) / 255);
+        else if (ch.type == "dimmer") dmxEngine.setChannelValue(addr, brightness);
       }
     }
   }
@@ -177,23 +219,36 @@ void loop() {
   systemState.uptime = millis() / 1000;
   systemState.freeMemory = ESP.getFreeHeap();
   
-  // CPU load measurement: count loops per second
-  loopCounter++;
+  // CPU load measurement (idle-task based, self-calibrating)
   if (millis() - lastCpuCalcTime >= 1000) {
-    loopsPerSecond = loopCounter;
-    loopCounter = 0;
+    uint32_t curIdle0 = idleCount0;
+    uint32_t curIdle1 = idleCount1;
+    uint32_t delta0 = curIdle0 - prevIdle0;
+    uint32_t delta1 = curIdle1 - prevIdle1;
+    prevIdle0 = curIdle0;
+    prevIdle1 = curIdle1;
     lastCpuCalcTime = millis();
-    // More loops = less busy. Baseline ~100 loops/s with delay(10)
-    if (loopsPerSecond >= MAX_LOOPS_PER_SEC) {
-      cpuLoadPercent = 0;
-    } else {
-      cpuLoadPercent = 100 - (loopsPerSecond * 100 / MAX_LOOPS_PER_SEC);
-    }
+
+    // Self-calibrate: highest idle count seen = 100% idle (0% CPU)
+    if (delta0 > maxIdle0) maxIdle0 = delta0;
+    if (delta1 > maxIdle1) maxIdle1 = delta1;
+
+    uint8_t load0 = (maxIdle0 > 0) ? 100 - min(100UL, delta0 * 100UL / maxIdle0) : 0;
+    uint8_t load1 = (maxIdle1 > 0) ? 100 - min(100UL, delta1 * 100UL / maxIdle1) : 0;
+    cpuLoadPercent = (load0 + load1) / 2;
   }
   
   // Update OLED display every 500ms
   if (millis() - lastDisplayUpdate >= 500) {
     lastDisplayUpdate = millis();
+    
+    // Debug: print DMX channels 1-10
+    Serial.printf("DMX[1-10]: %d %d %d %d %d %d %d %d %d %d\n",
+      dmxEngine.getChannelValue(1), dmxEngine.getChannelValue(2),
+      dmxEngine.getChannelValue(3), dmxEngine.getChannelValue(4),
+      dmxEngine.getChannelValue(5), dmxEngine.getChannelValue(6),
+      dmxEngine.getChannelValue(7), dmxEngine.getChannelValue(8),
+      dmxEngine.getChannelValue(9), dmxEngine.getChannelValue(10));
     
     DisplayStatus dStatus;
     dStatus.wifiConnected = (WiFi.status() == WL_CONNECTED);
@@ -232,16 +287,37 @@ void loop() {
 // ── Apply a scene to DMX output ──────────────────────────────────────
 void applyScene(const String& sceneId) {
   Scene* scene = sceneManager.getScene(sceneId);
-  if (!scene) return;
+  if (!scene) {
+    Serial.println("applyScene: scene '" + sceneId + "' not found!");
+    return;
+  }
+  
+  Serial.println("applyScene: '" + scene->name + "' (" + sceneId + ")");
   
   for (const auto& fv : scene->fixtureValues) {
     FixtureDef* fixture = sceneManager.getFixture(fv.fixtureId);
-    if (!fixture || !fixture->enabled) continue;
+    if (!fixture || !fixture->enabled) {
+      Serial.println("  fixture '" + fv.fixtureId + "' not found or disabled");
+      continue;
+    }
+    
+    Serial.printf("  fixture '%s' addr=%d channels=%d\n", 
+      fixture->name.c_str(), fixture->dmxAddress, fixture->channels.size());
     
     for (const auto& ch : fixture->channels) {
       auto it = fv.values.find(ch.name);
-      uint8_t value = (it != fv.values.end()) ? it->second : ch.defaultValue;
+      uint8_t value;
+      if (it != fv.values.end()) {
+        value = it->second;
+      } else if (ch.type == "dimmer") {
+        // Dimmer channels default to 255 (full) so the fixture actually lights up
+        value = 255;
+      } else {
+        value = ch.defaultValue;
+      }
       uint16_t dmxAddr = fixture->dmxAddress + ch.offset;
+      Serial.printf("    ch '%s' offset=%d -> DMX[%d] = %d\n",
+        ch.name.c_str(), ch.offset, dmxAddr, value);
       if (dmxAddr >= 1 && dmxAddr <= 512) {
         dmxEngine.setChannelValue(dmxAddr, value);
       }
@@ -406,10 +482,11 @@ void setupServer() {
   });
   
   // ── POST CRUD: Fixtures ──
-  server.on("/api/fixtures", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/fixtures", HTTP_POST,
+    // Request handler — called when body is fully received
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(2048);
-      if (deserializeJson(doc, data, len)) {
+      if (deserializeJson(doc, bodyBuffer)) {
         request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
         return;
       }
@@ -419,24 +496,57 @@ void setupServer() {
       f.name = doc["name"].as<String>();
       f.type = doc["type"].as<String>();
       f.dmxAddress = doc["dmxAddress"] | 1;
-      f.channelCount = doc["channelCount"] | 1;
       f.enabled = doc["enabled"] | true;
       
       JsonArray chArr = doc["channels"];
+      uint8_t maxOffset = 0;
       for (JsonObject chObj : chArr) {
         ChannelDef ch;
         ch.name = chObj["name"].as<String>();
         ch.offset = chObj["offset"] | 0;
         ch.defaultValue = chObj["defaultValue"] | 0;
         ch.type = chObj["type"].as<String>();
+        if (ch.offset > maxOffset) maxOffset = ch.offset;
         f.channels.push_back(ch);
       }
+      // channelCount = DMX footprint (highest offset + 1)
+      f.channelCount = f.channels.empty() ? 1 : (maxOffset + 1);
       
       sceneManager.saveFixture(f);
+      
+      // Log saved fixture channel mapping for debugging
+      Serial.printf("Fixture saved: '%s' addr=%d channels=%d\n",
+        f.name.c_str(), f.dmxAddress, f.channels.size());
+      for (const auto& ch : f.channels) {
+        Serial.printf("  ch '%s' offset=%d type=%s\n",
+          ch.name.c_str(), ch.offset, ch.type.c_str());
+      }
+      
+      // Re-register fixtures on DMX engine
+      dmxEngine.clearFixtures();
+      int fixtureCount = 0;
+      for (const auto& fx : sceneManager.getFixtures()) {
+        if (fx.enabled) {
+          dmxEngine.addFixture(0, fx.dmxAddress, fx.channelCount);
+          fixtureCount++;
+        }
+      }
+      Serial.println("Fixtures updated: " + String(fixtureCount) + " active");
+      
+      // Re-apply the active scene so DMX output reflects the new channel mapping
+      if (systemState.activeScene.length() > 0) {
+        Serial.println("Re-applying active scene after fixture update");
+        applyScene(systemState.activeScene);
+      }
       
       String response;
       serializeJson(doc, response);
       request->send(200, "application/json", response);
+    }, NULL,
+    // Body handler — accumulate chunks
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── DELETE: Fixtures ──
@@ -453,10 +563,10 @@ void setupServer() {
   });
   
   // ── POST CRUD: Scenes ──
-  server.on("/api/scenes", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/scenes", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(8192);
-      if (deserializeJson(doc, data, len)) {
+      if (deserializeJson(doc, bodyBuffer)) {
         request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
         return;
       }
@@ -483,6 +593,10 @@ void setupServer() {
       String response;
       serializeJson(doc, response);
       request->send(200, "application/json", response);
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── DELETE: Scenes ──
@@ -499,10 +613,10 @@ void setupServer() {
   });
   
   // ── POST CRUD: Shows ──
-  server.on("/api/shows", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/shows", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(4096);
-      if (deserializeJson(doc, data, len)) {
+      if (deserializeJson(doc, bodyBuffer)) {
         request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
         return;
       }
@@ -529,6 +643,10 @@ void setupServer() {
       String response;
       serializeJson(doc, response);
       request->send(200, "application/json", response);
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── DELETE: Shows ──
@@ -545,10 +663,10 @@ void setupServer() {
   });
   
   // ── POST: Config ──
-  server.on("/api/config", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/config", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(512);
-      if (deserializeJson(doc, data, len)) {
+      if (deserializeJson(doc, bodyBuffer)) {
         request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
         return;
       }
@@ -564,13 +682,17 @@ void setupServer() {
       String response;
       serializeJson(doc, response);
       request->send(200, "application/json", response);
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── Control: Activate Scene ──
-  server.on("/api/control/scene", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/control/scene", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(256);
-      if (!deserializeJson(doc, data, len) && doc.containsKey("sceneId")) {
+      if (!deserializeJson(doc, bodyBuffer) && doc.containsKey("sceneId")) {
         String sceneId = doc["sceneId"].as<String>();
         // Stop any running show
         if (showPlayback.running) {
@@ -582,13 +704,17 @@ void setupServer() {
         applyScene(sceneId);
       }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── Control: Start Show ──
-  server.on("/api/control/show", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/control/show", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(256);
-      if (!deserializeJson(doc, data, len) && doc.containsKey("showId")) {
+      if (!deserializeJson(doc, bodyBuffer) && doc.containsKey("showId")) {
         String showId = doc["showId"].as<String>();
         Show* show = sceneManager.getShow(showId);
         if (show && !show->steps.empty()) {
@@ -610,6 +736,10 @@ void setupServer() {
         }
       }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── Control: Stop Show ──
@@ -625,40 +755,52 @@ void setupServer() {
     });
   
   // ── Control: Color ──
-  server.on("/api/control/color", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/control/color", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(256);
-      if (!deserializeJson(doc, data, len) && doc.containsKey("color") && doc.containsKey("brightness")) {
+      if (!deserializeJson(doc, bodyBuffer) && doc.containsKey("color") && doc.containsKey("brightness")) {
         JsonArray color = doc["color"];
         uint8_t r = color[0], g = color[1], b = color[2];
         uint8_t brightness = doc["brightness"];
+        uint8_t w = min(r, min(g, b)); // derive white from common component
         
-        // Apply to first RGB-capable fixture
+        // Apply to all enabled fixtures, respecting channel layout
         for (const auto& f : sceneManager.getFixtures()) {
           if (!f.enabled) continue;
           for (const auto& ch : f.channels) {
             uint16_t addr = f.dmxAddress + ch.offset;
-            if (ch.name == "Red") dmxEngine.setChannelValue(addr, r);
-            else if (ch.name == "Green") dmxEngine.setChannelValue(addr, g);
-            else if (ch.name == "Blue") dmxEngine.setChannelValue(addr, b);
+            if (addr < 1 || addr > 512) continue;
+            if (ch.name == "Red")        dmxEngine.setChannelValue(addr, (r * brightness) / 255);
+            else if (ch.name == "Green") dmxEngine.setChannelValue(addr, (g * brightness) / 255);
+            else if (ch.name == "Blue")  dmxEngine.setChannelValue(addr, (b * brightness) / 255);
+            else if (ch.name == "White") dmxEngine.setChannelValue(addr, (w * brightness) / 255);
+            else if (ch.type == "dimmer") dmxEngine.setChannelValue(addr, brightness);
           }
         }
         dmxEngine.setMasterBrightness(brightness);
         systemState.masterBrightness = brightness;
       }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── Control: Strobe ──
-  server.on("/api/control/strobe", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/control/strobe", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(256);
-      if (!deserializeJson(doc, data, len) && doc.containsKey("speed")) {
+      if (!deserializeJson(doc, bodyBuffer) && doc.containsKey("speed")) {
         dmxEngine.setStrobeSpeed(doc["speed"]);
         dmxEngine.setStrobeActive(true);
         systemState.strobeActive = true;
       }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── Control: Strobe Stop ──
@@ -670,15 +812,19 @@ void setupServer() {
     });
   
   // ── Control: Smoke ──
-  server.on("/api/control/smoke", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/control/smoke", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(256);
-      if (!deserializeJson(doc, data, len) && doc.containsKey("duration")) {
+      if (!deserializeJson(doc, bodyBuffer) && doc.containsKey("duration")) {
         uint32_t duration = doc["duration"];
         systemState.smokeActive = true;
         smokeEndTime = millis() + duration;
       }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── Control: Smoke Stop ──
@@ -690,22 +836,39 @@ void setupServer() {
     });
   
   // ── Control: Brightness ──
-  server.on("/api/control/brightness", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/control/brightness", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(256);
-      if (!deserializeJson(doc, data, len) && doc.containsKey("brightness")) {
+      if (!deserializeJson(doc, bodyBuffer) && doc.containsKey("brightness")) {
         uint8_t brightness = doc["brightness"];
         dmxEngine.setMasterBrightness(brightness);
         systemState.masterBrightness = brightness;
+        
+        // Update all Dimmer channels so brightness takes effect immediately
+        for (const auto& f : sceneManager.getFixtures()) {
+          if (!f.enabled) continue;
+          for (const auto& ch : f.channels) {
+            if (ch.type == "dimmer") {
+              uint16_t addr = f.dmxAddress + ch.offset;
+              if (addr >= 1 && addr <= 512) {
+                dmxEngine.setChannelValue(addr, brightness);
+              }
+            }
+          }
+        }
       }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── Control: Sound Mode ──
-  server.on("/api/control/sound", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/control/sound", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(256);
-      if (!deserializeJson(doc, data, len)) {
+      if (!deserializeJson(doc, bodyBuffer)) {
         if (doc.containsKey("mode")) {
           int mode = doc["mode"];
           if (mode >= 0 && mode <= 4) {
@@ -724,6 +887,10 @@ void setupServer() {
         }
       }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // ── Control: Sound Stop ──
@@ -734,10 +901,10 @@ void setupServer() {
     });
 
   // ── Control: Direct DMX channel (test sliders) ──
-  server.on("/api/control/dmx", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+  server.on("/api/control/dmx", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       DynamicJsonDocument doc(256);
-      deserializeJson(doc, data, len);
+      deserializeJson(doc, bodyBuffer);
       if (doc.containsKey("channel") && doc.containsKey("value")) {
         int channel = doc["channel"];
         int value = doc["value"];
@@ -746,6 +913,10 @@ void setupServer() {
         }
       }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
     });
   
   // Captive portal detection handlers (must be before serveStatic)
@@ -784,6 +955,39 @@ void setupServer() {
   
   // 404 handler - redirect non-API requests to main page (captive portal)
   server.onNotFound(handleNotFound);
+}
+
+// ── WebSocket event handler for real-time DMX control ──────────────
+void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client,
+               AwsEventType type, void* arg, uint8_t* data, size_t len) {
+  if (type == WS_EVT_DATA) {
+    AwsFrameInfo* info = (AwsFrameInfo*)arg;
+    if (info->final && info->index == 0 && info->len == len && info->opcode == WS_TEXT) {
+      Serial.printf("WS recv: %.*s\n", (int)len, (char*)data);
+      // Parse JSON: {"dmx":{channel:value,...}} or {"ch":channel,"val":value}
+      StaticJsonDocument<512> doc;
+      if (deserializeJson(doc, data, len)) return;
+      
+      if (doc.containsKey("dmx")) {
+        JsonObject dmx = doc["dmx"];
+        for (JsonPair kv : dmx) {
+          int channel = atoi(kv.key().c_str());
+          int value = kv.value().as<int>();
+          if (channel >= 1 && channel <= 512 && value >= 0 && value <= 255) {
+            Serial.printf("WS DMX: ch%d=%d\n", channel, value);
+            dmxEngine.setChannelValue(channel, value);
+          }
+        }
+      } else if (doc.containsKey("ch") && doc.containsKey("val")) {
+        int channel = doc["ch"];
+        int value = doc["val"];
+        if (channel >= 1 && channel <= 512 && value >= 0 && value <= 255) {
+          Serial.printf("WS DMX: ch%d=%d\n", channel, value);
+          dmxEngine.setChannelValue(channel, value);
+        }
+      }
+    }
+  }
 }
 
 void handleNotFound(AsyncWebServerRequest* request) {

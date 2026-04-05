@@ -1,11 +1,9 @@
 #include "dmx_engine.h"
 #include "config.h"
-#include "driver/uart.h"
+#include <esp_dmx.h>
 
-#define DMX_UART UART_NUM_2
-// Number of BREAK bit-periods appended after each frame
-// At 250000 baud: 1 bit = 4µs → 50 bits = 200µs (spec ≥ 88µs)
-#define DMX_BREAK_BITS 50
+// Use DMX port 1 (UART1). Port 0 is used by Serial for debug output.
+#define DMX_PORT 1
 
 DMXEngine::DMXEngine() {
   strobeSpeed = 5;
@@ -13,53 +11,62 @@ DMXEngine::DMXEngine() {
   masterBrightness = 255;
   lastStrobeToggle = millis();
   strobeState = false;
-  memset(dmxBuffer, 0, sizeof(dmxBuffer));
+  dmxTaskHandle = NULL;
+  memset(dmxData, 0, sizeof(dmxData));
 }
 
 void DMXEngine::begin() {
-  // Configure UART2 for DMX512 output using ESP-IDF driver directly
-  // This gives us access to uart_write_bytes_with_break() for reliable framing
-  uart_config_t uart_config = {};
-  uart_config.baud_rate = DMX_BAUD_RATE;
-  uart_config.data_bits = UART_DATA_8_BITS;
-  uart_config.parity = UART_PARITY_DISABLE;
-  uart_config.stop_bits = UART_STOP_BITS_2;
-  uart_config.flow_ctrl = UART_HW_FLOWCTRL_DISABLE;
-  uart_config.source_clk = UART_SCLK_APB;
-
-  uart_param_config(DMX_UART, &uart_config);
-  uart_set_pin(DMX_UART, DMX_TX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-  // TX buffer must be larger than frame (513 bytes) + overhead. 0 = no buffer (blocking write).
-  // Using 0 for TX buffer forces fully synchronous writes — safest for DMX timing.
-  uart_driver_install(DMX_UART, 256, 0, 0, NULL, 0);
+  // Install esp_dmx driver on UART1
+  // TX only — RX pin set to -1, no enable pin (auto-direction RS-485 module)
+  dmx_config_t config = DMX_CONFIG_DEFAULT;
+  dmx_personality_t personalities[] = {};
+  dmx_driver_install(DMX_PORT, &config, personalities, 0);
+  dmx_set_pin(DMX_PORT, DMX_TX_PIN, -1, -1);
+  
+  // Start the DMX output task on Core 0 (web server runs on Core 1)
+  xTaskCreatePinnedToCore(
+    dmxTask,        // Task function
+    "DMX_Task",     // Name
+    4096,           // Stack size
+    this,           // Parameter (pass DMXEngine instance)
+    2,              // Priority (higher than idle, lower than WiFi)
+    &dmxTaskHandle, // Task handle
+    0               // Core 0 (separate from Arduino loop on Core 1)
+  );
 }
 
-void DMXEngine::update() {
-  // Handle strobe effect
-  if (strobeActive) {
-    uint32_t now = millis();
-    uint32_t interval = map(strobeSpeed, 1, 10, 500, 50);  // 500ms to 50ms
-    
-    if (now - lastStrobeToggle >= interval) {
-      strobeState = !strobeState;
-      lastStrobeToggle = now;
+// FreeRTOS task: continuously sends DMX frames (~44Hz)
+void DMXEngine::dmxTask(void* param) {
+  DMXEngine* engine = static_cast<DMXEngine*>(param);
+  
+  for (;;) {
+    // Handle strobe effect
+    if (engine->strobeActive) {
+      uint32_t now = millis();
+      uint32_t interval = map(engine->strobeSpeed, 1, 10, 500, 50);
       
-      // Apply strobe by setting brightness
-      if (!strobeState) {
-        for (int i = 0; i < 512; i++) {
-          dmxBuffer[i] = 0;
+      if (now - engine->lastStrobeToggle >= interval) {
+        engine->strobeState = !engine->strobeState;
+        engine->lastStrobeToggle = now;
+        
+        if (!engine->strobeState) {
+          memset(engine->dmxData + 1, 0, DMX_PACKET_SIZE - 1);
         }
       }
     }
+    
+    // Write and send DMX frame
+    dmx_write(DMX_PORT, engine->dmxData, DMX_PACKET_SIZE);
+    dmx_send_num(DMX_PORT, DMX_PACKET_SIZE);
+    // Block THIS task (not the main loop) until frame is sent
+    dmx_wait_sent(DMX_PORT, DMX_TIMEOUT_TICK);
   }
-  
-  // Send DMX frame
-  sendDMXFrame();
 }
 
 void DMXEngine::setChannelValue(uint16_t channel, uint8_t value) {
   if (channel >= 1 && channel <= 512) {
-    dmxBuffer[channel - 1] = value;
+    // dmxData[0] = start code (always 0), channels are 1-indexed in the packet
+    dmxData[channel] = value;
   }
 }
 
@@ -69,17 +76,17 @@ void DMXEngine::setFixtureValues(uint16_t fixtureId, const uint8_t* values, uint
   DMXFixture& fixture = fixtures[fixtureId];
   if (!fixture.enabled) return;
   
-  uint16_t addr = fixture.address - 1;
   for (uint8_t i = 0; i < count && i < fixture.channels; i++) {
-    if (addr + i < 512) {
-      dmxBuffer[addr + i] = (values[i] * masterBrightness) / 255;
+    uint16_t addr = fixture.address + i;
+    if (addr >= 1 && addr <= 512) {
+      dmxData[addr] = (values[i] * masterBrightness) / 255;
     }
   }
 }
 
 uint8_t DMXEngine::getChannelValue(uint16_t channel) {
   if (channel >= 1 && channel <= 512) {
-    return dmxBuffer[channel - 1];
+    return dmxData[channel];
   }
   return 0;
 }
@@ -99,6 +106,10 @@ void DMXEngine::removeFixture(uint16_t id) {
   }
 }
 
+void DMXEngine::clearFixtures() {
+  fixtures.clear();
+}
+
 void DMXEngine::setFixtureEnabled(uint16_t id, bool enabled) {
   if (id < fixtures.size()) {
     fixtures[id].enabled = enabled;
@@ -115,19 +126,4 @@ void DMXEngine::setStrobeActive(bool active) {
 
 void DMXEngine::setMasterBrightness(uint8_t brightness) {
   masterBrightness = brightness;
-}
-
-void DMXEngine::sendDMXFrame() {
-  // Build complete DMX frame: start code (0x00) + 512 channel values
-  uint8_t frame[513];
-  frame[0] = 0x00;  // DMX start code
-  memcpy(frame + 1, dmxBuffer, 512);
-
-  // Wait for previous frame to finish transmitting
-  uart_wait_tx_done(DMX_UART, pdMS_TO_TICKS(50));
-
-  // Send frame data followed by a BREAK signal (hardware-generated)
-  // The BREAK after this frame serves as the BREAK before the next frame.
-  // This is handled entirely by the ESP32 UART hardware — no manual timing.
-  uart_write_bytes_with_break(DMX_UART, (const char*)frame, 513, DMX_BREAK_BITS);
 }

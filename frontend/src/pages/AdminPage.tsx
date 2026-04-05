@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Plus, Trash2, Save, LogOut, GripVertical, ChevronDown, ChevronUp, Sliders } from 'lucide-react';
+import { Settings, Plus, Trash2, Save, LogOut, GripVertical, ChevronDown, ChevronUp, Sliders, Play } from 'lucide-react';
 import { Button, Card, Input, Select, Alert, LoadingSpinner, ErrorNotification } from '@/components/ui';
 import { useAppStore } from '@/store';
 import { apiService } from '@/services/api';
@@ -70,6 +70,9 @@ interface FixtureEditorProps {
 }
 
 const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave, onCancel }) => {
+  const computeChannelCount = (channels: ChannelDefinition[]) =>
+    channels.length > 0 ? Math.max(...channels.map(c => c.offset)) + 1 : 0;
+
   const applyPreset = (preset: string) => {
     const channels = FIXTURE_PRESETS[preset];
     if (channels) {
@@ -77,7 +80,7 @@ const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave
         ...fixture,
         type: preset,
         channels: channels.map(ch => ({ ...ch })),
-        channelCount: channels.length,
+        channelCount: computeChannelCount(channels),
       });
     }
   };
@@ -85,7 +88,7 @@ const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave
   const updateChannel = (idx: number, updates: Partial<ChannelDefinition>) => {
     const newChannels = [...fixture.channels];
     newChannels[idx] = { ...newChannels[idx], ...updates };
-    onChange({ ...fixture, channels: newChannels, channelCount: newChannels.length });
+    onChange({ ...fixture, channels: newChannels, channelCount: computeChannelCount(newChannels) });
   };
 
   const addChannel = () => {
@@ -95,13 +98,13 @@ const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave
     onChange({
       ...fixture,
       channels: [...fixture.channels, { name: 'Channel ' + (fixture.channels.length + 1), offset: nextOffset, defaultValue: 0, type: 'other' as ChannelType }],
-      channelCount: fixture.channels.length + 1,
+      channelCount: nextOffset + 1,
     });
   };
 
   const removeChannel = (idx: number) => {
     const newChannels = fixture.channels.filter((_, i) => i !== idx);
-    onChange({ ...fixture, channels: newChannels, channelCount: newChannels.length });
+    onChange({ ...fixture, channels: newChannels, channelCount: computeChannelCount(newChannels) });
   };
 
   return (
@@ -143,7 +146,7 @@ const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-slate-300">
-            Canaux ({fixture.channels.length}) — DMX {fixture.dmxAddress}–{fixture.dmxAddress + fixture.channels.length - 1}
+            Canaux ({fixture.channels.length}) — DMX {fixture.dmxAddress}–{fixture.dmxAddress + (fixture.channels.length > 0 ? Math.max(...fixture.channels.map(c => c.offset)) : 0)}
           </label>
           <Button variant="outline" size="sm" onClick={addChannel} className="flex items-center gap-1">
             <Plus size={14} /> Ajouter un Canal
@@ -171,10 +174,11 @@ const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave
               <Input
                 type="number"
                 min={0}
-                max={255}
-                value={ch.defaultValue}
-                onChange={(e) => updateChannel(idx, { defaultValue: parseInt(e.target.value) || 0 })}
-                className="w-20 !py-1 text-sm"
+                max={511}
+                value={ch.offset}
+                onChange={(e) => updateChannel(idx, { offset: parseInt(e.target.value) || 0 })}
+                className="w-16 !py-1 text-sm"
+                title="Offset DMX"
               />
               <button onClick={() => removeChannel(idx)} className="text-red-400 hover:text-red-300 p-1">
                 <Trash2 size={14} />
@@ -217,9 +221,10 @@ interface SceneEditorProps {
   onChange: (scene: ColorScene) => void;
   onSave: () => void;
   onCancel: () => void;
+  onTest: () => void;
 }
 
-const SceneEditor: React.FC<SceneEditorProps> = ({ scene, fixtures, onChange, onSave, onCancel }) => {
+const SceneEditor: React.FC<SceneEditorProps> = ({ scene, fixtures, onChange, onSave, onCancel, onTest }) => {
   const [expandedFixtures, setExpandedFixtures] = useState<Set<string>>(new Set());
 
   const toggleFixture = (fixtureId: string) => {
@@ -354,6 +359,9 @@ const SceneEditor: React.FC<SceneEditorProps> = ({ scene, fixtures, onChange, on
         <Button variant="primary" onClick={onSave} className="flex-1 flex items-center justify-center gap-2">
           <Save size={20} /> Enregistrer la Scène
         </Button>
+        <Button variant="outline" onClick={onTest} className="flex items-center justify-center gap-2" title="Envoyer cette scène aux projecteurs">
+          <Play size={20} /> Tester
+        </Button>
         <Button variant="outline" onClick={onCancel} className="flex-1">
           Annuler
         </Button>
@@ -371,9 +379,10 @@ interface ShowEditorProps {
   onChange: (show: DynamicShow) => void;
   onSave: () => void;
   onCancel: () => void;
+  onTestScene: (sceneId: string) => void;
 }
 
-const ShowEditor: React.FC<ShowEditorProps> = ({ show, scenes, onChange, onSave, onCancel }) => {
+const ShowEditor: React.FC<ShowEditorProps> = ({ show, scenes, onChange, onSave, onCancel, onTestScene }) => {
   const addStep = () => {
     if (scenes.length === 0) return;
     onChange({
@@ -466,6 +475,9 @@ const ShowEditor: React.FC<ShowEditorProps> = ({ show, scenes, onChange, onSave,
                     <option key={s.id} value={s.id}>{s.icon} {s.name}</option>
                   ))}
                 </select>
+                <button onClick={() => onTestScene(step.sceneId)} className="text-green-400 hover:text-green-300 p-1" title="Tester cette scène">
+                  <Play size={14} />
+                </button>
                 <button onClick={() => moveStep(idx, -1)} disabled={idx === 0} className="text-slate-400 hover:text-white disabled:opacity-30 p-1">
                   <ChevronUp size={16} />
                 </button>
@@ -618,6 +630,28 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
   };
 
   // ── Scene CRUD ──────────────────────────────────────────────────────
+
+  const handleTestScene = async (sceneId: string) => {
+    try {
+      await apiService.activateScene(sceneId);
+    } catch (error) {
+      console.error('Test scene failed:', error);
+    }
+  };
+
+  const handleTestEditingScene = async () => {
+    if (!editingScene) return;
+    // Save the scene first (so firmware has the latest values), then activate it
+    try {
+      await apiService.saveScene(editingScene);
+      await apiService.activateScene(editingScene.id);
+      await loadAdminData();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Échec du test de la scène';
+      store.setError(message);
+    }
+  };
+
   const handleNewScene = () => {
     setEditingScene({
       id: 'new-' + Date.now(),
@@ -832,6 +866,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
                   onChange={setEditingScene}
                   onSave={handleSaveScene}
                   onCancel={() => setEditingScene(null)}
+                  onTest={handleTestEditingScene}
                 />
               )}
 
@@ -855,6 +890,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
                       </div>
                     </div>
                     <div className="flex gap-2">
+                      <Button variant="outline" size="sm" onClick={() => handleTestScene(scene.id)} title="Tester cette scène" className="flex items-center gap-1 text-green-400 border-green-700 hover:bg-green-900/30">
+                        <Play size={14} /> Test
+                      </Button>
                       <Button variant="outline" size="sm" onClick={() => setEditingScene(scene)}>
                         Modifier
                       </Button>
@@ -887,6 +925,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
                   onChange={setEditingShow}
                   onSave={handleSaveShow}
                   onCancel={() => setEditingShow(null)}
+                  onTestScene={handleTestScene}
                 />
               )}
 

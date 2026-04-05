@@ -10,6 +10,10 @@ import type {
 
 class APIService {
   private api: AxiosInstance;
+  private ws: WebSocket | null = null;
+  private wsReady: boolean = false;
+  private dmxPending: Map<number, number> = new Map();
+  private dmxTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.api = axios.create({
@@ -19,6 +23,27 @@ class APIService {
         'Content-Type': 'application/json',
       },
     });
+    this.connectWebSocket();
+  }
+
+  private connectWebSocket(): void {
+    const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${proto}//${location.host}/ws`;
+    try {
+      this.ws = new WebSocket(wsUrl);
+      this.ws.onopen = () => { this.wsReady = true; };
+      this.ws.onclose = () => {
+        this.wsReady = false;
+        this.ws = null;
+        // Reconnect after 2s
+        setTimeout(() => this.connectWebSocket(), 2000);
+      };
+      this.ws.onerror = () => {
+        this.ws?.close();
+      };
+    } catch {
+      setTimeout(() => this.connectWebSocket(), 2000);
+    }
   }
 
   // Scenes
@@ -142,7 +167,30 @@ class APIService {
   }
 
   async setDMXChannel(channel: number, value: number): Promise<void> {
-    await this.api.post('/control/dmx', { channel, value });
+    // Batch changes and send over WebSocket every 50ms
+    this.dmxPending.set(channel, value);
+    if (!this.dmxTimer) {
+      this.dmxTimer = setTimeout(() => this.flushDMX(), 50);
+    }
+  }
+
+  private flushDMX(): void {
+    this.dmxTimer = null;
+    if (this.dmxPending.size === 0) return;
+
+    const batch: Record<string, number> = {};
+    for (const [ch, val] of this.dmxPending) {
+      batch[String(ch)] = val;
+    }
+    this.dmxPending.clear();
+
+    if (this.wsReady && this.ws) {
+      // Send all channels in one WebSocket message
+      this.ws.send(JSON.stringify({ dmx: batch }));
+    } else {
+      // Fallback to HTTP
+      this.api.post('/control/dmx', batch).catch(() => {});
+    }
   }
 
   // System

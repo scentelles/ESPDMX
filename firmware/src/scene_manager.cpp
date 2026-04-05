@@ -4,37 +4,51 @@
 SceneManager::SceneManager() {}
 
 void SceneManager::begin() {
-  if (!loadAll()) {
-    loadDefaults();
+  // Load each config file independently — a missing/corrupt file should NOT
+  // wipe the other successfully-loaded configs back to defaults.
+  bool fixturesOk = loadFixturesFromFile();
+  bool scenesOk   = loadScenesFromFile();
+  bool showsOk    = loadShowsFromFile();
+
+  if (!fixturesOk || !scenesOk || !showsOk) {
+    // Only load defaults for the parts that failed
+    if (!fixturesOk && !scenesOk && !showsOk) {
+      // Nothing loaded at all — first boot, use full defaults
+      loadDefaults();
+    } else {
+      if (!fixturesOk) loadDefaultFixtures();
+      if (!scenesOk)   loadDefaultScenes();
+      if (!showsOk)    loadDefaultShows();
+    }
     saveAll();
   }
 }
 
-void SceneManager::loadDefaults() {
+void SceneManager::loadDefaultFixtures() {
   fixtures.clear();
-  scenes.clear();
-  shows.clear();
-  
-  // Default RGB fixture
   FixtureDef f;
   f.id = "fixture-1";
-  f.name = "Main RGB Lights";
-  f.type = "rgb";
+  f.name = "Main Lights";
+  f.type = "rgbwd";
   f.dmxAddress = 1;
-  f.channelCount = 3;
+  f.channelCount = 8;
   f.enabled = true;
-  f.channels.push_back({"Red", 0, 0, "color"});
-  f.channels.push_back({"Green", 1, 0, "color"});
-  f.channels.push_back({"Blue", 2, 0, "color"});
+  f.channels.push_back({"Dimmer", 0, 0, "dimmer"});
+  f.channels.push_back({"Red", 4, 0, "color"});
+  f.channels.push_back({"Green", 5, 0, "color"});
+  f.channels.push_back({"Blue", 6, 0, "color"});
+  f.channels.push_back({"White", 7, 0, "color"});
   fixtures.push_back(f);
-  
-  // Default scenes
+}
+
+void SceneManager::loadDefaultScenes() {
+  scenes.clear();
   Scene s1;
   s1.id = "scene-warm";
   s1.name = "Warm White";
   s1.description = "Classic warm lighting";
   s1.icon = "🟡";
-  s1.fixtureValues.push_back({"fixture-1", {{"Red", 255}, {"Green", 180}, {"Blue", 100}}});
+  s1.fixtureValues.push_back({"fixture-1", {{"Dimmer", 255}, {"Red", 255}, {"Green", 180}, {"Blue", 100}, {"White", 200}}});
   scenes.push_back(s1);
   
   Scene s2;
@@ -42,7 +56,7 @@ void SceneManager::loadDefaults() {
   s2.name = "Red";
   s2.description = "Passion and energy";
   s2.icon = "🔴";
-  s2.fixtureValues.push_back({"fixture-1", {{"Red", 255}, {"Green", 0}, {"Blue", 0}}});
+  s2.fixtureValues.push_back({"fixture-1", {{"Dimmer", 255}, {"Red", 255}, {"Green", 0}, {"Blue", 0}, {"White", 0}}});
   scenes.push_back(s2);
   
   Scene s3;
@@ -50,10 +64,12 @@ void SceneManager::loadDefaults() {
   s3.name = "Blue";
   s3.description = "Cool and calm";
   s3.icon = "💙";
-  s3.fixtureValues.push_back({"fixture-1", {{"Red", 0}, {"Green", 100}, {"Blue", 255}}});
+  s3.fixtureValues.push_back({"fixture-1", {{"Dimmer", 255}, {"Red", 0}, {"Green", 100}, {"Blue", 255}, {"White", 0}}});
   scenes.push_back(s3);
-  
-  // Default show
+}
+
+void SceneManager::loadDefaultShows() {
+  shows.clear();
   Show sh;
   sh.id = "show-cycle";
   sh.name = "Color Cycle";
@@ -65,6 +81,12 @@ void SceneManager::loadDefaults() {
   sh.steps.push_back({"scene-red", 5000, 2000});
   sh.steps.push_back({"scene-blue", 5000, 2000});
   shows.push_back(sh);
+}
+
+void SceneManager::loadDefaults() {
+  loadDefaultFixtures();
+  loadDefaultScenes();
+  loadDefaultShows();
 }
 
 // ── Fixtures ────────────────────────────────────────────────────────
@@ -273,8 +295,12 @@ bool SceneManager::loadAll() {
 }
 
 bool SceneManager::saveFixturesToFile() {
+  Serial.println("[SceneManager] Saving fixtures to SPIFFS...");
   File file = SPIFFS.open("/fixtures.json", "w");
-  if (!file) return false;
+  if (!file) {
+    Serial.println("[SceneManager] ERROR: Failed to open /fixtures.json for writing!");
+    return false;
+  }
   
   DynamicJsonDocument doc(8192);
   JsonArray arr = doc.to<JsonArray>();
@@ -295,19 +321,31 @@ bool SceneManager::saveFixturesToFile() {
       chObj["type"] = ch.type;
     }
   }
-  serializeJson(doc, file);
+  String saved;
+  serializeJson(doc, saved);
+  file.print(saved);
   file.close();
+  Serial.println("[SceneManager] Saved fixtures: " + saved);
   return true;
 }
 
 bool SceneManager::loadFixturesFromFile() {
-  if (!SPIFFS.exists("/fixtures.json")) return false;
+  if (!SPIFFS.exists("/fixtures.json")) {
+    Serial.println("[SceneManager] /fixtures.json not found");
+    return false;
+  }
   File file = SPIFFS.open("/fixtures.json", "r");
   if (!file) return false;
   
+  // Dump raw SPIFFS content for debugging
+  String raw = file.readString();
+  Serial.println("[SceneManager] Raw /fixtures.json: " + raw);
+  
   DynamicJsonDocument doc(8192);
-  if (deserializeJson(doc, file)) { file.close(); return false; }
-  file.close();
+  if (deserializeJson(doc, raw)) {
+    Serial.println("[SceneManager] Failed to parse fixtures.json!");
+    return false;
+  }
   
   fixtures.clear();
   JsonArray arr = doc.as<JsonArray>();

@@ -1,9 +1,11 @@
-// DMX Engine - Handles DMX protocol and rendering
+// DMX Engine - Handles DMX protocol and rendering via esp_dmx library
+// DMX output runs in a dedicated FreeRTOS task on Core 0
 
 #ifndef DMX_ENGINE_H
 #define DMX_ENGINE_H
 
 #include <Arduino.h>
+#include <esp_dmx.h>
 #include <vector>
 
 struct DMXFixture {
@@ -16,10 +18,9 @@ struct DMXFixture {
 class DMXEngine {
 public:
   DMXEngine();
-  void begin();
-  void update();
+  void begin();  // Installs driver AND starts the DMX task
   
-  // DMX Output
+  // DMX Output (thread-safe: single-byte writes are atomic)
   void setChannelValue(uint16_t channel, uint8_t value);
   void setFixtureValues(uint16_t fixtureId, const uint8_t* values, uint8_t count);
   uint8_t getChannelValue(uint16_t channel);
@@ -27,6 +28,7 @@ public:
   // Fixtures
   void addFixture(uint16_t id, uint16_t address, uint8_t channels);
   void removeFixture(uint16_t id);
+  void clearFixtures();
   void setFixtureEnabled(uint16_t id, bool enabled);
   
   // Effects
@@ -35,16 +37,19 @@ public:
   void setMasterBrightness(uint8_t brightness);  // 0-255
   
 private:
-  void sendDMXFrame();
+  static void dmxTask(void* param);  // FreeRTOS task function
   
-  uint8_t dmxBuffer[512];
+  // dmxData[0] = start code (0x00), dmxData[1..512] = channels
+  uint8_t dmxData[DMX_PACKET_SIZE];
   std::vector<DMXFixture> fixtures;
   
   uint8_t strobeSpeed;
-  bool strobeActive;
-  uint8_t masterBrightness;
+  volatile bool strobeActive;
+  volatile uint8_t masterBrightness;
   uint32_t lastStrobeToggle;
   bool strobeState;
+  
+  TaskHandle_t dmxTaskHandle;
 };
 
 #endif

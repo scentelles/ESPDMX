@@ -91,6 +91,9 @@ private:
   std::vector<Show> shows;
   
   void loadDefaults();
+  void loadDefaultFixtures();
+  void loadDefaultScenes();
+  void loadDefaultShows();
   bool saveFixturesToFile();
   bool loadFixturesFromFile();
   bool saveScenesToFile();

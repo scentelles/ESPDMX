@@ -22,7 +22,7 @@ void ConfigManager::loadDefaults() {
   strcpy(config.wifiSSID, WIFI_SSID);
   strcpy(config.wifiPassword, WIFI_PASSWORD);
   strcpy(config.adminPin, ADMIN_PIN);
-  config.dmxBaud = DMX_BAUD_RATE;
+  config.dmxBaud = 250000;
   config.maxFixtures = MAX_FIXTURES;
   config.updateInterval = UPDATE_INTERVAL;
 }
@@ -99,7 +99,7 @@ bool ConfigManager::loadFromJSON(const char* json) {
   strlcpy(config.wifiSSID, doc["wifiSSID"] | "", sizeof(config.wifiSSID));
   strlcpy(config.wifiPassword, doc["wifiPassword"] | "", sizeof(config.wifiPassword));
   strlcpy(config.adminPin, doc["adminPin"] | "", sizeof(config.adminPin));
-  config.dmxBaud = doc["dmxBaud"] | DMX_BAUD_RATE;
+  config.dmxBaud = doc["dmxBaud"] | 250000;
   config.maxFixtures = doc["maxFixtures"] | MAX_FIXTURES;
   config.updateInterval = doc["updateInterval"] | UPDATE_INTERVAL;
   

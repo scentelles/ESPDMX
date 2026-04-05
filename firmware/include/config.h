@@ -13,10 +13,7 @@
 
 // DMX Configuration
 #define DMX_TX_PIN 16                // GPIO16 - TX for RS-485 (safe, not a strapping pin)
-#define DMX_BAUD_RATE 250000        // Standard DMX baud rate
 #define DMX_CHANNELS 512             // Full DMX universe
-#define DMX_BREAK_DURATION 90        // microseconds
-#define DMX_MAB_DURATION 12          // microseconds (Mark After Break)
 
 // I2S Microphone Configuration (INMP441)
 #define I2S_WS_PIN  25               // GPIO25 - Word Select (LRCLK)
