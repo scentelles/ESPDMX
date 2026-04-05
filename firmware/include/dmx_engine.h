@@ -36,9 +36,6 @@ public:
   
 private:
   void sendDMXFrame();
-  void sendBreakSignal();
-  void sendMAB();
-  void sendDMXData();
   
   uint8_t dmxBuffer[512];
   std::vector<DMXFixture> fixtures;
@@ -48,8 +45,6 @@ private:
   uint8_t masterBrightness;
   uint32_t lastStrobeToggle;
   bool strobeState;
-  
-  HardwareSerial* dmxSerial;
 };
 
 #endif

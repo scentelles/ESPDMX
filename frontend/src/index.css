@@ -58,6 +58,15 @@ textarea {
   animation: pulse-glow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
+@keyframes connection-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.animate-connection-pulse {
+  animation: connection-pulse 2s ease-in-out infinite;
+}
+
 .animate-slide-in {
   animation: slide-in 0.3s ease-out;
 }

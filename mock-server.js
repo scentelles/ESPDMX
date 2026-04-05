@@ -18,12 +18,15 @@ let systemState = {
   smokeActive: false,
   masterBrightness: 100,
   dmxOutput: Array(512).fill(0),
+  soundMode: 0,
+  soundSensitivity: 5,
+  audio: { volume: 0, bass: 0, mid: 0, high: 0, beat: false },
 };
 
 let mockFixtures = [
   {
     id: 'fixture-1',
-    name: 'Main RGB Lights',
+    name: 'Éclairage RGB Principal',
     type: 'rgb',
     dmxAddress: 1,
     channelCount: 3,
@@ -36,7 +39,7 @@ let mockFixtures = [
   },
   {
     id: 'fixture-2',
-    name: 'Stage RGBW Wash',
+    name: 'Wash RGBW Scène',
     type: 'rgbw',
     dmxAddress: 4,
     channelCount: 4,
@@ -50,7 +53,7 @@ let mockFixtures = [
   },
   {
     id: 'fixture-3',
-    name: 'Strobe Light',
+    name: 'Stroboscope',
     type: 'dimmer',
     dmxAddress: 8,
     channelCount: 1,
@@ -64,8 +67,8 @@ let mockFixtures = [
 let mockScenes = [
   {
     id: 'scene-1',
-    name: 'Red Room',
-    description: 'Warm red ambient lighting',
+    name: 'Rouge Intense',
+    description: 'Éclairage ambiant rouge chaleureux',
     icon: '🔴',
     fixtureValues: [
       { fixtureId: 'fixture-1', values: { Red: 255, Green: 0, Blue: 0 } },
@@ -74,8 +77,8 @@ let mockScenes = [
   },
   {
     id: 'scene-2',
-    name: 'Blue Night',
-    description: 'Cool blue atmosphere',
+    name: 'Nuit Bleue',
+    description: 'Atmosphère bleue froide',
     icon: '🔵',
     fixtureValues: [
       { fixtureId: 'fixture-1', values: { Red: 0, Green: 0, Blue: 255 } },
@@ -84,8 +87,8 @@ let mockScenes = [
   },
   {
     id: 'scene-3',
-    name: 'Green Energy',
-    description: 'Energetic green',
+    name: 'Énergie Verte',
+    description: 'Vert énergique',
     icon: '💚',
     fixtureValues: [
       { fixtureId: 'fixture-1', values: { Red: 0, Green: 255, Blue: 50 } },
@@ -93,8 +96,8 @@ let mockScenes = [
   },
   {
     id: 'scene-4',
-    name: 'Purple Magic',
-    description: 'Magical purple lights',
+    name: 'Magie Violette',
+    description: 'Lumières violettes féeriques',
     icon: '💜',
     fixtureValues: [
       { fixtureId: 'fixture-1', values: { Red: 180, Green: 0, Blue: 255 } },
@@ -106,8 +109,8 @@ let mockScenes = [
 let mockShows = [
   {
     id: 'show-1',
-    name: 'Color Cycle',
-    description: 'Cycles through all color scenes',
+    name: 'Cycle de Couleurs',
+    description: 'Alterne entre toutes les scènes couleur',
     icon: '🌈',
     loop: true,
     steps: [
@@ -119,8 +122,8 @@ let mockShows = [
   },
   {
     id: 'show-2',
-    name: 'Party Flash',
-    description: 'Fast scene changes for parties',
+    name: 'Flash Soirée',
+    description: 'Changements rapides pour soirées',
     icon: '🎉',
     loop: true,
     steps: [
@@ -146,6 +149,16 @@ app.get('/api/fixtures', (req, res) => {
 });
 
 app.get('/api/state', (req, res) => {
+  // Simulate live audio data when sound mode is active
+  if (systemState.soundMode > 0) {
+    systemState.audio = {
+      volume: Math.floor(Math.random() * 70) + 15,
+      bass: Math.floor(Math.random() * 85) + 10,
+      mid: Math.floor(Math.random() * 55) + 10,
+      high: Math.floor(Math.random() * 45) + 5,
+      beat: Math.random() > 0.65,
+    };
+  }
   res.json(systemState);
 });
 
@@ -221,10 +234,53 @@ app.post('/api/control/smoke', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+app.post('/api/control/smoke-stop', (req, res) => {
+  systemState.smokeActive = false;
+  console.log('✓ Smoke stopped');
+  res.json({ status: 'ok' });
+});
+
 app.post('/api/control/brightness', (req, res) => {
   const { brightness } = req.body;
   systemState.masterBrightness = brightness;
   console.log(`✓ Brightness set to: ${brightness}`);
+  res.json({ status: 'ok' });
+});
+
+app.post('/api/control/sound', (req, res) => {
+  const { mode, sensitivity } = req.body;
+  if (mode !== undefined) {
+    systemState.soundMode = mode;
+    console.log(`✓ Sound mode: ${mode}`);
+  }
+  if (sensitivity !== undefined) {
+    systemState.soundSensitivity = sensitivity;
+    console.log(`✓ Sound sensitivity: ${sensitivity}`);
+  }
+  // Simulate audio data when sound mode is active
+  if (systemState.soundMode > 0) {
+    systemState.audio = {
+      volume: Math.floor(Math.random() * 80) + 10,
+      bass: Math.floor(Math.random() * 90) + 5,
+      mid: Math.floor(Math.random() * 60) + 5,
+      high: Math.floor(Math.random() * 50) + 5,
+      beat: Math.random() > 0.6,
+    };
+  }
+  res.json({ status: 'ok' });
+});
+
+app.post('/api/control/sound-stop', (req, res) => {
+  systemState.soundMode = 0;
+  systemState.audio = { volume: 0, bass: 0, mid: 0, high: 0, beat: false };
+  console.log('✓ Sound mode stopped');
+  res.json({ status: 'ok' });
+});
+
+// Direct DMX channel control (test sliders)
+app.post('/api/control/dmx', (req, res) => {
+  const { channel, value } = req.body;
+  console.log(`✓ DMX channel ${channel} → ${value}`);
   res.json({ status: 'ok' });
 });
 
@@ -343,16 +399,16 @@ app.use((req, res) => {
 app.listen(PORT, () => {
   console.log(`
 ╔════════════════════════════════════════════════════════╗
-║        🎉 Mock ESP32 Server Started!                   ║
+║        🎉 Serveur Mock ESP32 Démarré !                  ║
 ║                                                        ║
 ║  Local:    http://localhost:${PORT}                  ║
 ║  API:      http://localhost:${PORT}/api/*            ║
 ║                                                        ║
-║  Press Ctrl+C to stop                                 ║
+║  Appuyez sur Ctrl+C pour arrêter                      ║
 ║                                                        ║
-║  ✓ Full CRUD for Fixtures, Scenes & Shows             ║
-║  ✓ All Controls: Color, Brightness, Effects           ║
-║  ✓ Static React Frontend                              ║
+║  ✓ CRUD complet Projecteurs, Scènes & Shows          ║
+║  ✓ Tous les Contrôles : Couleur, Luminosité, Effets  ║
+║  ✓ Frontend React Statique                            ║
 ╚════════════════════════════════════════════════════════╝
   `);
 });

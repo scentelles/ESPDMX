@@ -73,4 +73,13 @@ export interface LightingState {
   smokeActive: boolean;
   masterBrightness: number;
   dmxOutput: number[];
+  soundMode?: number;
+  soundSensitivity?: number;
+  audio?: {
+    volume: number;
+    bass: number;
+    mid: number;
+    high: number;
+    beat: boolean;
+  };
 }

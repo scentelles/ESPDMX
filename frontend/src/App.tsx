@@ -22,7 +22,7 @@ function App() {
       setPage('admin');
       setLoginOpen(false);
     } else {
-      store.setError('Invalid PIN');
+      store.setError('PIN invalide');
     }
   };
 
@@ -40,7 +40,7 @@ function App() {
             <button
               onClick={handleAdminClick}
               className="w-12 h-12 bg-slate-800 hover:bg-slate-700 rounded-full border-2 border-slate-700 flex items-center justify-center text-slate-400 hover:text-slate-300 transition-all"
-              title="Admin Panel"
+              title="Panneau Admin"
             >
               ⚙️
             </button>

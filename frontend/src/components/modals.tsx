@@ -14,7 +14,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onLogin, onCance
 
   const handleSubmit = () => {
     if (pin.length < 4) {
-      setError('PIN must be at least 4 digits');
+      setError('Le PIN doit contenir au moins 4 chiffres');
       return;
     }
     onLogin(pin);
@@ -29,15 +29,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onLogin, onCance
       <div className="bg-slate-900 rounded-xl border border-slate-800 p-8 shadow-2xl max-w-md w-full mx-4">
         <div className="flex items-center justify-center mb-6">
           <Lock className="w-8 h-8 text-purple-600 mr-2" />
-          <h2 className="text-2xl font-bold text-white">Admin Access</h2>
+          <h2 className="text-2xl font-bold text-white">Accès Admin</h2>
         </div>
 
-        <p className="text-slate-400 text-center mb-6">Enter your admin PIN to continue</p>
+        <p className="text-slate-400 text-center mb-6">Entrez votre PIN administrateur pour continuer</p>
 
         <Input
           type="password"
           inputMode="numeric"
-          placeholder="Enter PIN"
+          placeholder="Entrez le PIN"
           value={pin}
           onChange={(e) => {
             setPin(e.target.value);
@@ -51,10 +51,10 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onLogin, onCance
 
         <div className="flex gap-3">
           <Button variant="outline" className="flex-1" onClick={onCancel}>
-            Cancel
+            Annuler
           </Button>
           <Button variant="primary" className="flex-1" onClick={handleSubmit}>
-            Login
+            Connexion
           </Button>
         </div>
       </div>

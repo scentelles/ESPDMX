@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
 #include <ArduinoJson.h>
@@ -8,13 +9,16 @@
 #include "config_manager.h"
 #include "scene_manager.h"
 #include "display_manager.h"
+#include "audio_manager.h"
 
 // Global objects
 AsyncWebServer server(WEB_PORT);
+DNSServer dnsServer;
 DMXEngine dmxEngine;
 ConfigManager configManager;
 SceneManager sceneManager;
 DisplayManager displayManager;
+AudioManager audioManager;
 
 // System state
 struct SystemState {
@@ -43,6 +47,13 @@ uint32_t lastUpdate = 0;
 uint32_t smokeEndTime = 0;
 uint32_t lastDisplayUpdate = 0;
 
+// CPU load measurement
+volatile uint32_t loopCounter = 0;
+uint32_t lastCpuCalcTime = 0;
+uint32_t loopsPerSecond = 0;
+const uint32_t MAX_LOOPS_PER_SEC = 100;  // calibrated baseline (with delay(10))
+uint8_t cpuLoadPercent = 0;
+
 // Forward declarations
 void setupWiFi();
 void setupServer();
@@ -61,29 +72,43 @@ void setup() {
   // Initialize display and show boot logo
   displayManager.begin();
   displayManager.showBootLogo();
+  delay(500);
   
-  // Initialize SPIFFS
+  // Initialize SPIFFS - ONLY call this once!
   if (!SPIFFS.begin(true)) {
     Serial.println("SPIFFS initialization failed!");
+    displayManager.update();
+    delay(3000);
+    ESP.restart();  // Restart if SPIFFS fails
     return;
   }
   
-  // Initialize managers
+  Serial.println("SPIFFS initialized successfully");
+  
+  // Initialize managers (configManager and sceneManager do NOT call SPIFFS.begin())
   configManager.begin();
   sceneManager.begin();
   
   // Initialize DMX engine - register fixtures
   dmxEngine.begin();
+  int fixtureCount = 0;
   for (const auto& f : sceneManager.getFixtures()) {
     if (f.enabled) {
       dmxEngine.addFixture(0, f.dmxAddress, f.channelCount);
+      fixtureCount++;
     }
   }
+  
+  Serial.println("DMX Engine initialized with " + String(fixtureCount) + " fixtures");
   
   // Initialize system state
   systemState.masterBrightness = 100;
   systemState.strobeActive = false;
   systemState.smokeActive = false;
+  
+  // Initialize audio manager (I2S mic)
+  audioManager.begin();
+  Serial.println("Setup complete!");
   
   // Initialize show playback
   showPlayback.running = false;
@@ -112,8 +137,33 @@ void setup() {
 }
 
 void loop() {
+  // Process DNS requests (captive portal in AP mode)
+  if (WiFi.getMode() == WIFI_AP) {
+    dnsServer.processNextRequest();
+  }
+
   // Update DMX engine
   dmxEngine.update();
+  
+  // Update audio manager and apply sound-reactive effects
+  audioManager.update();
+  if (audioManager.getMode() != SOUND_OFF) {
+    uint8_t r, g, b;
+    audioManager.getSoundColor(r, g, b);
+    uint8_t brightness = audioManager.getSoundBrightness();
+    
+    for (const auto& f : sceneManager.getFixtures()) {
+      if (!f.enabled) continue;
+      for (const auto& ch : f.channels) {
+        uint16_t addr = f.dmxAddress + ch.offset;
+        if (addr < 1 || addr > 512) continue;
+        if (ch.name == "Red") dmxEngine.setChannelValue(addr, (r * brightness) / 255);
+        else if (ch.name == "Green") dmxEngine.setChannelValue(addr, (g * brightness) / 255);
+        else if (ch.name == "Blue") dmxEngine.setChannelValue(addr, (b * brightness) / 255);
+        else if (ch.name == "Dimmer" || ch.name == "Master") dmxEngine.setChannelValue(addr, brightness);
+      }
+    }
+  }
   
   // Update show playback
   updateShowPlayback();
@@ -126,6 +176,20 @@ void loop() {
   // Update system state
   systemState.uptime = millis() / 1000;
   systemState.freeMemory = ESP.getFreeHeap();
+  
+  // CPU load measurement: count loops per second
+  loopCounter++;
+  if (millis() - lastCpuCalcTime >= 1000) {
+    loopsPerSecond = loopCounter;
+    loopCounter = 0;
+    lastCpuCalcTime = millis();
+    // More loops = less busy. Baseline ~100 loops/s with delay(10)
+    if (loopsPerSecond >= MAX_LOOPS_PER_SEC) {
+      cpuLoadPercent = 0;
+    } else {
+      cpuLoadPercent = 100 - (loopsPerSecond * 100 / MAX_LOOPS_PER_SEC);
+    }
+  }
   
   // Update OLED display every 500ms
   if (millis() - lastDisplayUpdate >= 500) {
@@ -154,6 +218,9 @@ void loop() {
     dStatus.dmxActive = true;
     dStatus.uptime = systemState.uptime;
     dStatus.freeMemory = systemState.freeMemory;
+    dStatus.cpuLoad = cpuLoadPercent;
+    dStatus.soundMode = (uint8_t)audioManager.getMode();
+    dStatus.soundVolume = (uint8_t)(audioManager.getData().volume * 100);
     
     displayManager.showStatus(dStatus);
   }
@@ -266,6 +333,10 @@ void setupWiFi() {
     WiFi.softAP(config.wifiSSID, config.wifiPassword);
     Serial.println("AP SSID: " + String(config.wifiSSID));
     Serial.println("AP IP: " + WiFi.softAPIP().toString());
+    
+    // Start DNS server for captive portal (redirect all domains to ESP32)
+    dnsServer.start(53, "*", WiFi.softAPIP());
+    Serial.println("Captive portal DNS started");
   }
 }
 
@@ -286,13 +357,24 @@ void setupServer() {
   });
   
   server.on("/api/state", HTTP_GET, [](AsyncWebServerRequest* request) {
-    DynamicJsonDocument doc(512);
+    DynamicJsonDocument doc(1024);
     doc["activeScene"] = systemState.activeScene;
     doc["activeAmbiance"] = systemState.activeAmbiance;
     doc["activeShow"] = systemState.activeShow;
     doc["strobeActive"] = systemState.strobeActive;
     doc["smokeActive"] = systemState.smokeActive;
     doc["masterBrightness"] = systemState.masterBrightness;
+    doc["soundMode"] = (int)audioManager.getMode();
+    doc["soundSensitivity"] = audioManager.getSensitivity();
+    
+    // Audio data
+    AudioData ad = audioManager.getData();
+    JsonObject audio = doc.createNestedObject("audio");
+    audio["volume"] = (int)(ad.volume * 100);
+    audio["bass"] = (int)(ad.bass * 100);
+    audio["mid"] = (int)(ad.mid * 100);
+    audio["high"] = (int)(ad.high * 100);
+    audio["beat"] = ad.beatDetected;
     
     JsonArray dmxOutput = doc.createNestedArray("dmxOutput");
     for (int i = 0; i < 16; i++) {
@@ -531,8 +613,8 @@ void setupServer() {
     });
   
   // ── Control: Stop Show ──
-  server.on("/api/control/show-stop", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/control/show-stop", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       if (showPlayback.running) {
         Show* show = sceneManager.getShow(showPlayback.showId);
         if (show) show->isRunning = false;
@@ -580,8 +662,8 @@ void setupServer() {
     });
   
   // ── Control: Strobe Stop ──
-  server.on("/api/control/strobe-stop", HTTP_POST, handleNotFound, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+  server.on("/api/control/strobe-stop", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
       dmxEngine.setStrobeActive(false);
       systemState.strobeActive = false;
       request->send(200, "application/json", "{\"status\":\"ok\"}");
@@ -599,6 +681,14 @@ void setupServer() {
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
   
+  // ── Control: Smoke Stop ──
+  server.on("/api/control/smoke-stop", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
+      systemState.smokeActive = false;
+      smokeEndTime = 0;
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+  
   // ── Control: Brightness ──
   server.on("/api/control/brightness", HTTP_POST, handleNotFound, NULL,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
@@ -611,13 +701,96 @@ void setupServer() {
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
   
+  // ── Control: Sound Mode ──
+  server.on("/api/control/sound", HTTP_POST, handleNotFound, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      DynamicJsonDocument doc(256);
+      if (!deserializeJson(doc, data, len)) {
+        if (doc.containsKey("mode")) {
+          int mode = doc["mode"];
+          if (mode >= 0 && mode <= 4) {
+            audioManager.setMode((SoundMode)mode);
+            // Stop show when entering sound mode
+            if (mode != 0 && showPlayback.running) {
+              Show* show = sceneManager.getShow(showPlayback.showId);
+              if (show) show->isRunning = false;
+              showPlayback.running = false;
+              systemState.activeShow = "";
+            }
+          }
+        }
+        if (doc.containsKey("sensitivity")) {
+          audioManager.setSensitivity(doc["sensitivity"]);
+        }
+      }
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+  
+  // ── Control: Sound Stop ──
+  server.on("/api/control/sound-stop", HTTP_POST,
+    [](AsyncWebServerRequest* request) {
+      audioManager.setMode(SOUND_OFF);
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+
+  // ── Control: Direct DMX channel (test sliders) ──
+  server.on("/api/control/dmx", HTTP_POST, handleNotFound, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t, size_t) {
+      DynamicJsonDocument doc(256);
+      deserializeJson(doc, data, len);
+      if (doc.containsKey("channel") && doc.containsKey("value")) {
+        int channel = doc["channel"];
+        int value = doc["value"];
+        if (channel >= 1 && channel <= 512 && value >= 0 && value <= 255) {
+          dmxEngine.setChannelValue(channel, value);
+        }
+      }
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+  
+  // Captive portal detection handlers (must be before serveStatic)
+  // Apple
+  server.on("/hotspot-detect.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->redirect("http://" + WiFi.softAPIP().toString() + "/");
+  });
+  server.on("/library/test/success.html", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->redirect("http://" + WiFi.softAPIP().toString() + "/");
+  });
+  // Android
+  server.on("/generate_204", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->redirect("http://" + WiFi.softAPIP().toString() + "/");
+  });
+  server.on("/gen_204", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->redirect("http://" + WiFi.softAPIP().toString() + "/");
+  });
+  // Windows
+  server.on("/connecttest.txt", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->redirect("http://" + WiFi.softAPIP().toString() + "/");
+  });
+  server.on("/ncsi.txt", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->redirect("http://" + WiFi.softAPIP().toString() + "/");
+  });
+  // Firefox
+  server.on("/success.txt", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->redirect("http://" + WiFi.softAPIP().toString() + "/");
+  });
+  // Microsoft redirect
+  server.on("/redirect", HTTP_GET, [](AsyncWebServerRequest* request) {
+    request->redirect("http://" + WiFi.softAPIP().toString() + "/");
+  });
+
   // Serve web interface
   server.serveStatic("/", SPIFFS, "/web/").setDefaultFile("index.html");
   
-  // 404 handler
+  // 404 handler - redirect non-API requests to main page (captive portal)
   server.onNotFound(handleNotFound);
 }
 
 void handleNotFound(AsyncWebServerRequest* request) {
+  // In AP mode, redirect non-API requests to main page (captive portal)
+  if (WiFi.getMode() == WIFI_AP && !request->url().startsWith("/api/")) {
+    request->redirect("http://" + WiFi.softAPIP().toString() + "/");
+    return;
+  }
   request->send(404, "application/json", "{\"error\":\"Not found\"}");
 }

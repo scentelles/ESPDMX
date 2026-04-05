@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Settings, Plus, Trash2, Save, LogOut, GripVertical, ChevronDown, ChevronUp } from 'lucide-react';
+import { Settings, Plus, Trash2, Save, LogOut, GripVertical, ChevronDown, ChevronUp, Sliders } from 'lucide-react';
 import { Button, Card, Input, Select, Alert, LoadingSpinner, ErrorNotification } from '@/components/ui';
 import { useAppStore } from '@/store';
 import { apiService } from '@/services/api';
@@ -41,12 +41,12 @@ const FIXTURE_PRESETS: Record<string, ChannelDefinition[]> = {
 };
 
 const CHANNEL_TYPES: { value: ChannelType; label: string }[] = [
-  { value: 'dimmer', label: 'Dimmer' },
-  { value: 'color', label: 'Color' },
+  { value: 'dimmer', label: 'Variateur' },
+  { value: 'color', label: 'Couleur' },
   { value: 'position', label: 'Position' },
-  { value: 'speed', label: 'Speed' },
+  { value: 'speed', label: 'Vitesse' },
   { value: 'gobo', label: 'Gobo' },
-  { value: 'other', label: 'Other' },
+  { value: 'other', label: 'Autre' },
 ];
 
 // ── Helper: channel color hint for sliders ───────────────────────────
@@ -107,17 +107,17 @@ const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave
   return (
     <div className="mb-6 p-4 bg-slate-800 rounded-lg border border-slate-700">
       <h3 className="text-lg font-bold text-white mb-4">
-        {fixture.id.startsWith('new-') ? 'New Fixture' : 'Edit Fixture'}
+        {fixture.id.startsWith('new-') ? 'Nouveau Projecteur' : 'Modifier le Projecteur'}
       </h3>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <Input
-          label="Fixture Name"
+          label="Nom du Projecteur"
           value={fixture.name}
           onChange={(e) => onChange({ ...fixture, name: e.target.value })}
         />
         <Input
-          label="DMX Start Address"
+          label="Adresse DMX de Départ"
           type="number"
           min={1}
           max={512}
@@ -125,16 +125,16 @@ const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave
           onChange={(e) => onChange({ ...fixture, dmxAddress: parseInt(e.target.value) || 1 })}
         />
         <Select
-          label="Load Preset"
+          label="Charger un Préréglage"
           value={fixture.type}
           onChange={(e) => applyPreset(e.target.value)}
           options={[
-            { value: '', label: '— Select preset —' },
-            { value: 'dimmer', label: 'Dimmer (1ch)' },
+            { value: '', label: '— Choisir un préréglage —' },
+            { value: 'dimmer', label: 'Variateur (1ch)' },
             { value: 'rgb', label: 'RGB (3ch)' },
             { value: 'rgbw', label: 'RGBW (4ch)' },
-            { value: 'rgbwd', label: 'RGBW+Dimmer (5ch)' },
-            { value: 'moving_head', label: 'Moving Head (8ch)' },
+            { value: 'rgbwd', label: 'RGBW+Variateur (5ch)' },
+            { value: 'moving_head', label: 'Lyre (8ch)' },
           ]}
         />
       </div>
@@ -143,10 +143,10 @@ const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-slate-300">
-            Channels ({fixture.channels.length}) — DMX {fixture.dmxAddress}–{fixture.dmxAddress + fixture.channels.length - 1}
+            Canaux ({fixture.channels.length}) — DMX {fixture.dmxAddress}–{fixture.dmxAddress + fixture.channels.length - 1}
           </label>
           <Button variant="outline" size="sm" onClick={addChannel} className="flex items-center gap-1">
-            <Plus size={14} /> Add Channel
+            <Plus size={14} /> Ajouter un Canal
           </Button>
         </div>
 
@@ -192,16 +192,16 @@ const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave
             onChange={(e) => onChange({ ...fixture, enabled: e.target.checked })}
             className="accent-purple-600"
           />
-          Enabled
+          Activé
         </label>
       </div>
 
       <div className="flex gap-2">
         <Button variant="primary" onClick={onSave} className="flex-1 flex items-center justify-center gap-2">
-          <Save size={20} /> Save Fixture
+          <Save size={20} /> Enregistrer le Projecteur
         </Button>
         <Button variant="outline" onClick={onCancel} className="flex-1">
-          Cancel
+          Annuler
         </Button>
       </div>
     </div>
@@ -268,17 +268,17 @@ const SceneEditor: React.FC<SceneEditorProps> = ({ scene, fixtures, onChange, on
   return (
     <div className="mb-6 p-4 bg-slate-800 rounded-lg border border-slate-700">
       <h3 className="text-lg font-bold text-white mb-4">
-        {scene.id.startsWith('new-') ? 'New Scene' : 'Edit Scene'}
+        {scene.id.startsWith('new-') ? 'Nouvelle Scène' : 'Modifier la Scène'}
       </h3>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <Input
-          label="Scene Name"
+          label="Nom de la Scène"
           value={scene.name}
           onChange={(e) => onChange({ ...scene, name: e.target.value })}
         />
         <Input
-          label="Icon (emoji)"
+          label="Icône (emoji)"
           value={scene.icon}
           onChange={(e) => onChange({ ...scene, icon: e.target.value })}
         />
@@ -291,9 +291,9 @@ const SceneEditor: React.FC<SceneEditorProps> = ({ scene, fixtures, onChange, on
 
       {/* Per-fixture channel values */}
       <div className="mb-4">
-        <label className="text-sm font-medium text-slate-300 mb-2 block">Fixture Values</label>
+        <label className="text-sm font-medium text-slate-300 mb-2 block">Valeurs des Projecteurs</label>
         {fixtures.length === 0 && (
-          <Alert variant="warning">No fixtures configured. Add fixtures first in the Fixtures tab.</Alert>
+          <Alert variant="warning">Aucun projecteur configuré. Ajoutez d'abord des projecteurs dans l'onglet Projecteurs.</Alert>
         )}
         <div className="space-y-2">
           {fixtures.map(fixture => {
@@ -352,10 +352,10 @@ const SceneEditor: React.FC<SceneEditorProps> = ({ scene, fixtures, onChange, on
 
       <div className="flex gap-2">
         <Button variant="primary" onClick={onSave} className="flex-1 flex items-center justify-center gap-2">
-          <Save size={20} /> Save Scene
+          <Save size={20} /> Enregistrer la Scène
         </Button>
         <Button variant="outline" onClick={onCancel} className="flex-1">
-          Cancel
+          Annuler
         </Button>
       </div>
     </div>
@@ -405,17 +405,17 @@ const ShowEditor: React.FC<ShowEditorProps> = ({ show, scenes, onChange, onSave,
   return (
     <div className="mb-6 p-4 bg-slate-800 rounded-lg border border-slate-700">
       <h3 className="text-lg font-bold text-white mb-4">
-        {show.id.startsWith('new-') ? 'New Show' : 'Edit Show'}
+        {show.id.startsWith('new-') ? 'Nouveau Show' : 'Modifier le Show'}
       </h3>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
         <Input
-          label="Show Name"
+          label="Nom du Show"
           value={show.name}
           onChange={(e) => onChange({ ...show, name: e.target.value })}
         />
         <Input
-          label="Icon (emoji)"
+          label="Icône (emoji)"
           value={show.icon}
           onChange={(e) => onChange({ ...show, icon: e.target.value })}
         />
@@ -433,22 +433,22 @@ const ShowEditor: React.FC<ShowEditorProps> = ({ show, scenes, onChange, onSave,
           onChange={(e) => onChange({ ...show, loop: e.target.checked })}
           className="accent-purple-600"
         />
-        Loop show continuously
+        Boucle continue
       </label>
 
       {/* Scene steps */}
       <div className="mb-4">
         <div className="flex items-center justify-between mb-2">
           <label className="text-sm font-medium text-slate-300">
-            Scene Steps ({show.steps.length}) — Total: {(totalDuration / 1000).toFixed(1)}s
+            Étapes ({show.steps.length}) — Total: {(totalDuration / 1000).toFixed(1)}s
           </label>
           <Button variant="outline" size="sm" onClick={addStep} disabled={scenes.length === 0} className="flex items-center gap-1">
-            <Plus size={14} /> Add Step
+            <Plus size={14} /> Ajouter une Étape
           </Button>
         </div>
 
         {scenes.length === 0 && (
-          <Alert variant="warning">No scenes defined. Create scenes first in the Scenes tab.</Alert>
+          <Alert variant="warning">Aucune scène définie. Créez d'abord des scènes dans l'onglet Scènes.</Alert>
         )}
 
         <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
@@ -478,7 +478,7 @@ const ShowEditor: React.FC<ShowEditorProps> = ({ show, scenes, onChange, onSave,
               </div>
               <div className="grid grid-cols-2 gap-3 pl-8">
                 <div>
-                  <label className="text-xs text-slate-500">Hold Duration</label>
+                  <label className="text-xs text-slate-500">Durée de Maintien</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="range"
@@ -493,7 +493,7 @@ const ShowEditor: React.FC<ShowEditorProps> = ({ show, scenes, onChange, onSave,
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs text-slate-500">Transition Time</label>
+                  <label className="text-xs text-slate-500">Durée de Transition</label>
                   <div className="flex items-center gap-2">
                     <input
                       type="range"
@@ -515,10 +515,10 @@ const ShowEditor: React.FC<ShowEditorProps> = ({ show, scenes, onChange, onSave,
 
       <div className="flex gap-2">
         <Button variant="primary" onClick={onSave} className="flex-1 flex items-center justify-center gap-2">
-          <Save size={20} /> Save Show
+          <Save size={20} /> Enregistrer le Show
         </Button>
         <Button variant="outline" onClick={onCancel} className="flex-1">
-          Cancel
+          Annuler
         </Button>
       </div>
     </div>
@@ -535,11 +535,23 @@ interface AdminPageProps {
 export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
   const store = useAppStore();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'fixtures' | 'scenes' | 'shows' | 'settings'>('fixtures');
+  const [activeTab, setActiveTab] = useState<'fixtures' | 'scenes' | 'shows' | 'dmxtest' | 'settings'>('fixtures');
   const [editingFixture, setEditingFixture] = useState<DMXFixture | null>(null);
   const [editingScene, setEditingScene] = useState<ColorScene | null>(null);
   const [editingShow, setEditingShow] = useState<DynamicShow | null>(null);
   const [config, setConfig] = useState<Partial<SystemConfig>>({});
+  const [dmxSliders, setDmxSliders] = useState<{ address: number; value: number }[]>([
+    { address: 1, value: 0 },
+    { address: 2, value: 0 },
+    { address: 3, value: 0 },
+    { address: 4, value: 0 },
+    { address: 5, value: 0 },
+    { address: 6, value: 0 },
+    { address: 7, value: 0 },
+    { address: 8, value: 0 },
+    { address: 9, value: 0 },
+    { address: 10, value: 0 },
+  ]);
 
   useEffect(() => {
     loadAdminData();
@@ -559,7 +571,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
       setConfig(sysConfig);
       setLoading(false);
     } catch (error) {
-      store.setError('Failed to load admin data');
+      store.setError('Erreur de chargement des données admin');
       console.error(error);
       setLoading(false);
     }
@@ -569,7 +581,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
   const handleNewFixture = () => {
     setEditingFixture({
       id: 'new-' + Date.now(),
-      name: 'New Fixture',
+      name: 'Nouveau Projecteur',
       type: 'rgb',
       dmxAddress: 1,
       channelCount: 3,
@@ -589,18 +601,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
       await loadAdminData();
       setEditingFixture(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save fixture';
+      const message = error instanceof Error ? error.message : 'Échec de l\'enregistrement du projecteur';
       store.setError(message);
     }
   };
 
   const handleDeleteFixture = async (id: string) => {
-    if (!confirm('Delete this fixture? Scenes using it will lose those values.')) return;
+    if (!confirm('Supprimer ce projecteur ? Les scènes l\'utilisant perdront ces valeurs.')) return;
     try {
       await apiService.deleteFixture(id);
       await loadAdminData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete fixture';
+      const message = error instanceof Error ? error.message : 'Échec de la suppression du projecteur';
       store.setError(message);
     }
   };
@@ -609,7 +621,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
   const handleNewScene = () => {
     setEditingScene({
       id: 'new-' + Date.now(),
-      name: 'New Scene',
+      name: 'Nouvelle Scène',
       description: '',
       icon: '🎨',
       fixtureValues: [],
@@ -623,18 +635,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
       await loadAdminData();
       setEditingScene(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save scene';
+      const message = error instanceof Error ? error.message : 'Échec de l\'enregistrement de la scène';
       store.setError(message);
     }
   };
 
   const handleDeleteScene = async (id: string) => {
-    if (!confirm('Delete this scene? Shows referencing it will lose those steps.')) return;
+    if (!confirm('Supprimer cette scène ? Les shows la référençant perdront ces étapes.')) return;
     try {
       await apiService.deleteScene(id);
       await loadAdminData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete scene';
+      const message = error instanceof Error ? error.message : 'Échec de la suppression de la scène';
       store.setError(message);
     }
   };
@@ -643,7 +655,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
   const handleNewShow = () => {
     setEditingShow({
       id: 'new-' + Date.now(),
-      name: 'New Show',
+      name: 'Nouveau Show',
       description: '',
       icon: '🎆',
       loop: true,
@@ -658,18 +670,18 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
       await loadAdminData();
       setEditingShow(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save show';
+      const message = error instanceof Error ? error.message : 'Échec de l\'enregistrement du show';
       store.setError(message);
     }
   };
 
   const handleDeleteShow = async (id: string) => {
-    if (!confirm('Delete this show?')) return;
+    if (!confirm('Supprimer ce show ?')) return;
     try {
       await apiService.deleteShow(id);
       await loadAdminData();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete show';
+      const message = error instanceof Error ? error.message : 'Échec de la suppression du show';
       store.setError(message);
     }
   };
@@ -680,7 +692,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
       await apiService.saveSystemConfig(config);
       store.setError(null);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to save configuration';
+      const message = error instanceof Error ? error.message : 'Échec de l\'enregistrement de la configuration';
       store.setError(message);
     }
   };
@@ -688,13 +700,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
   // ── Helpers ─────────────────────────────────────────────────────────
   const sceneSummary = (scene: ColorScene): string => {
     const count = scene.fixtureValues?.length || 0;
-    return count === 0 ? 'No fixtures' : `${count} fixture${count > 1 ? 's' : ''}`;
+    return count === 0 ? 'Aucun projecteur' : `${count} projecteur${count > 1 ? 's' : ''}`;
   };
 
   const showSummary = (show: DynamicShow): string => {
     const steps = show.steps || [];
     const total = steps.reduce((s, step) => s + step.duration + step.transitionTime, 0);
-    return `${steps.length} step${steps.length !== 1 ? 's' : ''} • ${(total / 1000).toFixed(1)}s${show.loop ? ' • loop' : ''}`;
+    return `${steps.length} étape${steps.length !== 1 ? 's' : ''} • ${(total / 1000).toFixed(1)}s${show.loop ? ' • boucle' : ''}`;
   };
 
   if (loading) {
@@ -712,30 +724,33 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-8 flex justify-between items-center">
         <div>
-          <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">⚙️ Admin Panel</h1>
-          <p className="text-slate-400">Configure your DMX lighting system</p>
+          <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">⚙️ Panneau Admin</h1>
+          <p className="text-slate-400">Configurez votre système d'éclairage DMX</p>
         </div>
         <Button variant="outline" onClick={onLogout} className="flex items-center gap-2">
-          <LogOut size={20} /> Logout
+          <LogOut size={20} /> Déconnexion
         </Button>
       </div>
 
       <div className="max-w-7xl mx-auto">
         {/* Navigation Tabs */}
         <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
-          {(['fixtures', 'scenes', 'shows', 'settings'] as const).map((tab) => (
-            <button
-              key={tab}
-              onClick={() => setActiveTab(tab)}
-              className={`px-4 py-2 rounded-lg font-semibold transition-all whitespace-nowrap ${
-                activeTab === tab
-                  ? 'bg-purple-600 text-white'
-                  : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-              }`}
-            >
-              {tab.charAt(0).toUpperCase() + tab.slice(1)}
-            </button>
-          ))}
+          {(['fixtures', 'scenes', 'shows', 'dmxtest', 'settings'] as const).map((tab) => {
+            const tabLabels: Record<string, string> = { fixtures: 'Projecteurs', scenes: 'Scènes', shows: 'Shows', dmxtest: 'Test DMX', settings: 'Paramètres' };
+            return (
+              <button
+                key={tab}
+                onClick={() => setActiveTab(tab)}
+                className={`px-4 py-2 rounded-lg font-semibold transition-all whitespace-nowrap ${
+                  activeTab === tab
+                    ? 'bg-purple-600 text-white'
+                    : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+              >
+                {tabLabels[tab]}
+              </button>
+            );
+          })}
         </div>
 
         {/* ═══ Fixtures Tab ═══ */}
@@ -744,10 +759,10 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
             <Card>
               <div className="flex items-center justify-between mb-6">
                 <h2 className="text-2xl font-bold text-white flex items-center gap-2">
-                  <Settings size={24} /> DMX Fixtures
+                  <Settings size={24} /> Projecteurs DMX
                 </h2>
                 <Button variant="secondary" onClick={handleNewFixture} className="flex items-center gap-2">
-                  <Plus size={20} /> Add Fixture
+                  <Plus size={20} /> Ajouter un Projecteur
                 </Button>
               </div>
 
@@ -762,7 +777,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
 
               {store.fixtures.length === 0 && !editingFixture && (
                 <div className="text-center py-8 text-slate-500">
-                  No fixtures configured yet. Click "Add Fixture" to get started.
+                  Aucun projecteur configuré. Cliquez sur "Ajouter un Projecteur" pour commencer.
                 </div>
               )}
 
@@ -781,12 +796,12 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
                         {fixture.channels?.length > 0 && (
                           <span className="text-slate-600"> ({fixture.channels.map(c => c.name).join(', ')})</span>
                         )}
-                        {!fixture.enabled && <span className="text-red-400 ml-2">(disabled)</span>}
+                        {!fixture.enabled && <span className="text-red-400 ml-2">(désactivé)</span>}
                       </div>
                     </div>
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => setEditingFixture(fixture)}>
-                        Edit
+                        Modifier
                       </Button>
                       <Button variant="danger" size="sm" onClick={() => handleDeleteFixture(fixture.id)}>
                         <Trash2 size={16} />
@@ -804,9 +819,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
           <div className="space-y-6">
             <Card>
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-white">🎨 Color Scenes</h2>
+                <h2 className="text-2xl font-bold text-white">🎨 Scènes Couleur</h2>
                 <Button variant="secondary" onClick={handleNewScene} className="flex items-center gap-2">
-                  <Plus size={20} /> Add Scene
+                  <Plus size={20} /> Ajouter une Scène
                 </Button>
               </div>
 
@@ -822,7 +837,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
 
               {store.scenes.length === 0 && !editingScene && (
                 <div className="text-center py-8 text-slate-500">
-                  No scenes defined yet. Click "Add Scene" to create one.
+                  Aucune scène définie. Cliquez sur "Ajouter une Scène" pour en créer une.
                 </div>
               )}
 
@@ -835,13 +850,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
                     <div className="flex-1">
                       <div className="font-semibold text-white">{scene.icon} {scene.name}</div>
                       <div className="text-sm text-slate-400">
-                        {scene.description || 'No description'}
+                        {scene.description || 'Aucune description'}
                         {' • '}{sceneSummary(scene)}
                       </div>
                     </div>
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => setEditingScene(scene)}>
-                        Edit
+                        Modifier
                       </Button>
                       <Button variant="danger" size="sm" onClick={() => handleDeleteScene(scene.id)}>
                         <Trash2 size={16} />
@@ -859,9 +874,9 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
           <div className="space-y-6">
             <Card>
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-white">🎆 Dynamic Shows</h2>
+                <h2 className="text-2xl font-bold text-white">🎆 Shows Dynamiques</h2>
                 <Button variant="secondary" onClick={handleNewShow} className="flex items-center gap-2">
-                  <Plus size={20} /> Add Show
+                  <Plus size={20} /> Ajouter un Show
                 </Button>
               </div>
 
@@ -877,7 +892,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
 
               {store.shows.length === 0 && !editingShow && (
                 <div className="text-center py-8 text-slate-500">
-                  No shows defined yet. Click "Add Show" to create one.
+                  Aucun show défini. Cliquez sur "Ajouter un Show" pour en créer un.
                 </div>
               )}
 
@@ -890,13 +905,13 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
                     <div className="flex-1">
                       <div className="font-semibold text-white">{show.icon} {show.name}</div>
                       <div className="text-sm text-slate-400">
-                        {show.description || 'No description'}
+                        {show.description || 'Aucune description'}
                         {' • '}{showSummary(show)}
                       </div>
                     </div>
                     <div className="flex gap-2">
                       <Button variant="outline" size="sm" onClick={() => setEditingShow(show)}>
-                        Edit
+                        Modifier
                       </Button>
                       <Button variant="danger" size="sm" onClick={() => handleDeleteShow(show.id)}>
                         <Trash2 size={16} />
@@ -909,34 +924,128 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
           </div>
         )}
 
+        {/* ═══ DMX Test Tab ═══ */}
+        {activeTab === 'dmxtest' && (
+          <div className="space-y-6">
+            <Card>
+              <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                <Sliders /> Test DMX — Sliders Directs
+              </h2>
+              <p className="text-sm text-slate-400 mb-6">
+                Envoyez des valeurs DMX directement sur n'importe quelle adresse (1–512) pour tester vos projecteurs.
+              </p>
+              <div className="space-y-6">
+                {dmxSliders.map((slider, index) => (
+                  <div key={index} className="bg-slate-800 rounded-lg p-4 border border-slate-700">
+                    <div className="flex items-center gap-4 mb-3">
+                      <span className="text-white font-bold text-lg w-8">{index + 1}</span>
+                      <label className="text-slate-400 text-sm">Adresse DMX :</label>
+                      <input
+                        type="number"
+                        min={1}
+                        max={512}
+                        value={slider.address}
+                        onChange={(e) => {
+                          const addr = Math.max(1, Math.min(512, parseInt(e.target.value) || 1));
+                          setDmxSliders(prev => prev.map((s, i) => i === index ? { ...s, address: addr } : s));
+                        }}
+                        className="w-20 bg-slate-900 border border-slate-600 rounded px-2 py-1 text-white text-center"
+                      />
+                      <span className="ml-auto text-2xl font-mono font-bold text-purple-400 w-16 text-right">
+                        {slider.value}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-slate-500 text-xs w-6">0</span>
+                      <input
+                        type="range"
+                        min={0}
+                        max={255}
+                        value={slider.value}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value);
+                          setDmxSliders(prev => prev.map((s, i) => i === index ? { ...s, value: val } : s));
+                          apiService.setDMXChannel(slider.address, val);
+                        }}
+                        className="flex-1 h-3 appearance-none rounded-full bg-slate-700 accent-purple-500 cursor-pointer"
+                      />
+                      <span className="text-slate-500 text-xs w-8">255</span>
+                    </div>
+                    <div className="flex justify-between mt-2">
+                      <div className="flex gap-1">
+                        {[0, 64, 128, 192, 255].map(preset => (
+                          <button
+                            key={preset}
+                            onClick={() => {
+                              setDmxSliders(prev => prev.map((s, i) => i === index ? { ...s, value: preset } : s));
+                              apiService.setDMXChannel(slider.address, preset);
+                            }}
+                            className="px-2 py-0.5 text-xs rounded bg-slate-700 hover:bg-slate-600 text-slate-300 transition-colors"
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-6 flex gap-2">
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    const reset = dmxSliders.map(s => ({ ...s, value: 0 }));
+                    setDmxSliders(reset);
+                    reset.forEach(s => apiService.setDMXChannel(s.address, 0));
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  Tout à 0
+                </Button>
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    const full = dmxSliders.map(s => ({ ...s, value: 255 }));
+                    setDmxSliders(full);
+                    full.forEach(s => apiService.setDMXChannel(s.address, 255));
+                  }}
+                  className="flex items-center gap-2"
+                >
+                  Tout à 255
+                </Button>
+              </div>
+            </Card>
+          </div>
+        )}
+
         {/* ═══ Settings Tab ═══ */}
         {activeTab === 'settings' && (
           <div className="space-y-6">
             <Card>
               <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
-                <Settings /> System Settings
+                <Settings /> Paramètres Système
               </h2>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <Input
-                  label="WiFi SSID"
+                  label="SSID WiFi"
                   value={config.wifiSSID || ''}
                   onChange={(e) => setConfig({ ...config, wifiSSID: e.target.value })}
                 />
                 <Input
-                  label="WiFi Password"
+                  label="Mot de Passe WiFi"
                   type="password"
                   value={config.wifiPassword || ''}
                   onChange={(e) => setConfig({ ...config, wifiPassword: e.target.value })}
                 />
                 <Input
-                  label="Admin PIN"
+                  label="PIN Admin"
                   type="password"
                   value={config.adminPin || ''}
                   onChange={(e) => setConfig({ ...config, adminPin: e.target.value })}
                 />
                 <Input
-                  label="DMX Baud Rate"
+                  label="Débit DMX (Baud)"
                   type="number"
                   value={config.dmxBaud || 250000}
                   onChange={(e) => setConfig({ ...config, dmxBaud: parseInt(e.target.value) })}
@@ -945,16 +1054,16 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
 
               <div className="flex gap-2">
                 <Button variant="primary" onClick={handleSaveConfig} className="flex-1 flex items-center justify-center gap-2">
-                  <Save size={20} /> Save Settings
+                  <Save size={20} /> Enregistrer les Paramètres
                 </Button>
                 <Button variant="danger" size="md">
-                  Reboot System
+                  Redémarrer le Système
                 </Button>
               </div>
             </Card>
 
             <Alert variant="info">
-              All changes are automatically saved to the ESP32 flash memory. System will restart after some changes.
+              Toutes les modifications sont automatiquement sauvegardées dans la mémoire flash de l'ESP32. Le système redémarrera après certaines modifications.
             </Alert>
           </div>
         )}

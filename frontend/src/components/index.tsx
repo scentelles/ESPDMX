@@ -1,17 +1,21 @@
 import React from 'react';
-import { Zap, Wind } from 'lucide-react';
+import { Zap, Wind, Mic, MicOff } from 'lucide-react';
 import { Button } from '@/components/ui';
 
 interface EffectButtonsProps {
-  onStrobeClick: () => void;
-  onSmokeClick: () => void;
+  onStrobeDown: () => void;
+  onStrobeUp: () => void;
+  onSmokeDown: () => void;
+  onSmokeUp: () => void;
   strobeActive?: boolean;
   smokeActive?: boolean;
 }
 
 export const EffectButtons: React.FC<EffectButtonsProps> = ({
-  onStrobeClick,
-  onSmokeClick,
+  onStrobeDown,
+  onStrobeUp,
+  onSmokeDown,
+  onSmokeUp,
   strobeActive = false,
   smokeActive = false,
 }) => {
@@ -20,22 +24,30 @@ export const EffectButtons: React.FC<EffectButtonsProps> = ({
       <Button
         variant="danger"
         size="lg"
-        onClick={onStrobeClick}
-        className={`flex items-center justify-center gap-2 ${strobeActive ? 'animate-pulse-glow' : ''}`}
+        onPointerDown={onStrobeDown}
+        onPointerUp={onStrobeUp}
+        onPointerLeave={onStrobeUp}
+        onContextMenu={(e) => e.preventDefault()}
+        className={`flex items-center justify-center gap-2 select-none touch-none ${strobeActive ? 'animate-pulse-glow ring-2 ring-red-400' : ''}`}
       >
         <Zap size={24} />
-        <span>STROBE</span>
+        <span>STROBOSCOPE</span>
       </Button>
 
       <Button
         variant="danger"
         size="lg"
-        onClick={onSmokeClick}
-        className={`flex items-center justify-center gap-2 ${smokeActive ? 'animate-pulse-glow' : ''}`}
+        onPointerDown={onSmokeDown}
+        onPointerUp={onSmokeUp}
+        onPointerLeave={onSmokeUp}
+        onContextMenu={(e) => e.preventDefault()}
+        className={`flex items-center justify-center gap-2 select-none touch-none ${smokeActive ? 'animate-pulse-glow ring-2 ring-red-400' : ''}`}
       >
         <Wind size={24} />
-        <span>SMOKE</span>
+        <span>FUMÉE</span>
       </Button>
+
+      <p className="col-span-2 text-center text-xs text-slate-500">Maintenir appuyé pour activer</p>
     </div>
   );
 };
@@ -141,3 +153,125 @@ export const ShowGrid: React.FC<ShowGridProps> = ({
     </div>
   );
 };
+
+// ── Connection status indicator ─────────────────────────────────────
+interface ConnectionIndicatorProps {
+  connected: boolean;
+}
+
+export const ConnectionIndicator: React.FC<ConnectionIndicatorProps> = ({ connected }) => {
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/80 rounded-full border border-slate-700">
+      <div className={`w-2.5 h-2.5 rounded-full ${
+        connected
+          ? 'bg-green-500 shadow-[0_0_6px_rgba(34,197,94,0.7)] animate-connection-pulse'
+          : 'bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.7)]'
+      }`} />
+      <span className={`text-xs font-medium ${connected ? 'text-green-400' : 'text-red-400'}`}>
+        {connected ? 'Connecté' : 'Déconnecté'}
+      </span>
+    </div>
+  );
+};
+
+// ── Sound-reactive panel ────────────────────────────────────────────
+
+const SOUND_MODES = [
+  { id: 0, name: 'Désactivé', icon: '🔇', desc: 'Mode son désactivé' },
+  { id: 1, name: 'Volume', icon: '📊', desc: 'Luminosité suit le volume' },
+  { id: 2, name: 'Beat', icon: '🥁', desc: 'Flash sur les basses' },
+  { id: 3, name: 'Couleur', icon: '🌈', desc: 'Bass=R, Mid=V, Aigu=B' },
+  { id: 4, name: 'VU-Mètre', icon: '📶', desc: 'Vert → Jaune → Rouge' },
+];
+
+interface SoundPanelProps {
+  soundMode: number;
+  sensitivity: number;
+  audio?: { volume: number; bass: number; mid: number; high: number; beat: boolean };
+  onModeChange: (mode: number) => void;
+  onSensitivityChange: (sens: number) => void;
+}
+
+export const SoundPanel: React.FC<SoundPanelProps> = ({
+  soundMode,
+  sensitivity,
+  audio,
+  onModeChange,
+  onSensitivityChange,
+}) => {
+  return (
+    <div className="space-y-4">
+      {/* Mode selector */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+        {SOUND_MODES.map((mode) => (
+          <button
+            key={mode.id}
+            onClick={() => onModeChange(mode.id)}
+            className={`p-3 rounded-lg border-2 transition-all duration-200 text-center ${
+              soundMode === mode.id
+                ? mode.id === 0
+                  ? 'border-slate-500 bg-slate-700/50'
+                  : 'border-cyan-500 bg-cyan-600/20 shadow-lg shadow-cyan-500/30'
+                : 'border-slate-700 bg-slate-800 hover:border-cyan-600'
+            }`}
+            title={mode.desc}
+          >
+            <div className="text-2xl mb-1">{mode.icon}</div>
+            <div className="text-xs font-semibold text-white">{mode.name}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Active indicator & controls */}
+      {soundMode > 0 && (
+        <div className="space-y-3">
+          {/* Sensitivity slider */}
+          <div className="flex items-center gap-3">
+            <MicOff size={16} className="text-slate-500" />
+            <input
+              type="range"
+              min={1}
+              max={10}
+              value={sensitivity}
+              onChange={(e) => onSensitivityChange(parseInt(e.target.value))}
+              className="flex-1 h-2 rounded-lg appearance-none cursor-pointer bg-slate-700
+                         [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4
+                         [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
+                         [&::-webkit-slider-thumb]:bg-cyan-500"
+            />
+            <Mic size={16} className="text-cyan-400" />
+            <span className="text-xs text-slate-400 w-6 text-right">{sensitivity}</span>
+          </div>
+
+          {/* Audio level bars */}
+          {audio && (
+            <div className="flex items-end gap-1.5 h-12 p-2 bg-slate-800/50 rounded-lg">
+              <AudioBar label="Vol" value={audio.volume} color="bg-cyan-500" />
+              <AudioBar label="Bass" value={audio.bass} color="bg-red-500" />
+              <AudioBar label="Mid" value={audio.mid} color="bg-green-500" />
+              <AudioBar label="Aigu" value={audio.high} color="bg-blue-500" />
+              {audio.beat && (
+                <div className="ml-2 flex items-center">
+                  <div className="w-3 h-3 rounded-full bg-yellow-400 animate-ping" />
+                  <span className="text-xs text-yellow-400 ml-1">BEAT</span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const AudioBar: React.FC<{ label: string; value: number; color: string }> = ({ label, value, color }) => (
+  <div className="flex flex-col items-center gap-0.5 flex-1">
+    <div className="w-full bg-slate-700 rounded-sm h-8 relative overflow-hidden">
+      <div
+        className={`absolute bottom-0 w-full rounded-sm transition-all duration-100 ${color}`}
+        style={{ height: `${value}%` }}
+      />
+    </div>
+    <span className="text-[8px] text-slate-500">{label}</span>
+  </div>
+);

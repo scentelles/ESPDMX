@@ -12,13 +12,16 @@
 #define MAX_JSON_SIZE 2048
 
 // DMX Configuration
-#define DMX_TX_PIN 17                // GPIO17 - TX for RS-485
-#define DMX_RX_PIN 16                // GPIO16 - RX for RS-485
-#define DMX_DE_PIN 15                // GPIO15 - DE (Driver Enable) for RS-485
+#define DMX_TX_PIN 16                // GPIO16 - TX for RS-485 (safe, not a strapping pin)
 #define DMX_BAUD_RATE 250000        // Standard DMX baud rate
 #define DMX_CHANNELS 512             // Full DMX universe
 #define DMX_BREAK_DURATION 90        // microseconds
 #define DMX_MAB_DURATION 12          // microseconds (Mark After Break)
+
+// I2S Microphone Configuration (INMP441)
+#define I2S_WS_PIN  25               // GPIO25 - Word Select (LRCLK)
+#define I2S_BCK_PIN 26               // GPIO26 - Bit Clock (BCLK)
+#define I2S_SD_PIN  14               // GPIO14 - Serial Data (DOUT)
 
 // System Configuration
 #define ADMIN_PIN "1234"             // Default admin PIN (change in settings!)

@@ -32,6 +32,9 @@ struct DisplayStatus {
   bool dmxActive;
   uint32_t uptime;
   uint32_t freeMemory;
+  uint8_t cpuLoad;
+  uint8_t soundMode;    // 0=off, 1-4=active modes
+  uint8_t soundVolume;  // 0-100
 };
 
 class DisplayManager {

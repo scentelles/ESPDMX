@@ -123,8 +123,26 @@ class APIService {
     await this.api.post('/control/smoke', { duration });
   }
 
+  async stopSmoke(): Promise<void> {
+    await this.api.post('/control/smoke-stop');
+  }
+
   async setMasterBrightness(brightness: number): Promise<void> {
     await this.api.post('/control/brightness', { brightness });
+  }
+
+  async setSoundMode(mode: number, sensitivity?: number): Promise<void> {
+    const payload: { mode: number; sensitivity?: number } = { mode };
+    if (sensitivity !== undefined) payload.sensitivity = sensitivity;
+    await this.api.post('/control/sound', payload);
+  }
+
+  async stopSound(): Promise<void> {
+    await this.api.post('/control/sound-stop');
+  }
+
+  async setDMXChannel(channel: number, value: number): Promise<void> {
+    await this.api.post('/control/dmx', { channel, value });
   }
 
   // System

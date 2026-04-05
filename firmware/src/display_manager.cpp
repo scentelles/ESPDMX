@@ -74,13 +74,13 @@ void DisplayManager::showBootLogo() {
   // Title
   display.setTextAlignment(TEXT_ALIGN_LEFT);
   display.setFont(ArialMT_Plain_24);
-  display.drawString(30, 4, "DMXESP");
+  display.drawString(30, 4, "ESPDMX");
 
   // Subtitle
   display.setFont(ArialMT_Plain_10);
   display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.drawString(80, 32, "DMX512 Lighting");
-  display.drawString(80, 44, "Controller");
+  display.drawString(80, 32, "Eclairage DMX512");
+  display.drawString(80, 44, "Controleur");
 
   display.display();
 }
@@ -123,7 +123,7 @@ void DisplayManager::showReady(const String& ip, bool apMode) {
   display.setTextAlignment(TEXT_ALIGN_CENTER);
 
   // Mode
-  display.drawString(64, 18, apMode ? "Access Point Mode" : "WiFi Connected");
+  display.drawString(64, 18, apMode ? "Mode Point d'Acces" : "WiFi Connecte");
 
   // IP Address (larger)
   display.setFont(ArialMT_Plain_16);
@@ -131,7 +131,7 @@ void DisplayManager::showReady(const String& ip, bool apMode) {
 
   // Footer
   display.setFont(ArialMT_Plain_10);
-  display.drawString(64, 52, "Web UI available");
+  display.drawString(64, 52, "Interface Web dispo");
 
   display.display();
 }
@@ -173,20 +173,25 @@ void DisplayManager::showStatus(const DisplayStatus& status) {
     display.drawString(38, 13, truncate(status.activeScene, 11));
   } else {
     display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 15, "No scene active");
+    display.drawString(0, 15, "Aucune scene active");
   }
 
   // Separator
   display.drawHorizontalLine(0, 31, 128);
 
-  // ── Row 2: Fixtures info ──
+  // ── Row 2: Fixtures + CPU load ──
   display.setFont(ArialMT_Plain_10);
   display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.drawString(0, 34, "Fixtures: " + String(status.enabledFixtures) + "/" + String(status.fixtureCount));
+  display.drawString(0, 34, "Fix:" + String(status.enabledFixtures) + "/" + String(status.fixtureCount));
+
+  // CPU load
+  display.setTextAlignment(TEXT_ALIGN_CENTER);
+  display.drawString(75, 34, "CPU:" + String(status.cpuLoad) + "%");
 
   // DMX indicator
-  drawDMXIcon(90, 34, status.dmxActive);
-  display.drawString(103, 34, "DMX");
+  display.setTextAlignment(TEXT_ALIGN_LEFT);
+  drawDMXIcon(108, 34, status.dmxActive);
+  display.drawString(120, 34, "D");
 
   // ── Row 3: Master brightness bar + effects ──
   display.drawString(0, 48, "Bri:");
@@ -194,7 +199,12 @@ void DisplayManager::showStatus(const DisplayStatus& status) {
 
   // Effect indicators
   display.setTextAlignment(TEXT_ALIGN_RIGHT);
-  if (status.strobeActive) {
+  if (status.soundMode > 0) {
+    // Show mic icon + volume bar when sound mode active
+    if ((millis() / 300) % 2 == 0 || status.soundVolume > 20) {
+      display.drawString(112, 48, "MIC");
+    }
+  } else if (status.strobeActive) {
     if ((millis() / 100) % 2 == 0) {
       display.drawString(112, 48, "STR");
     }
