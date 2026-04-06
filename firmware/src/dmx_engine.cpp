@@ -40,20 +40,8 @@ void DMXEngine::dmxTask(void* param) {
   DMXEngine* engine = static_cast<DMXEngine*>(param);
   
   for (;;) {
-    // Handle strobe effect
-    if (engine->strobeActive) {
-      uint32_t now = millis();
-      uint32_t interval = map(engine->strobeSpeed, 1, 10, 500, 50);
-      
-      if (now - engine->lastStrobeToggle >= interval) {
-        engine->strobeState = !engine->strobeState;
-        engine->lastStrobeToggle = now;
-        
-        if (!engine->strobeState) {
-          memset(engine->dmxData + 1, 0, DMX_PACKET_SIZE - 1);
-        }
-      }
-    }
+    // Strobe is now handled per-fixture via strobe channel values
+    // set in the HTTP handler — no blanking needed here
     
     // Write and send DMX frame
     dmx_write(DMX_PORT, engine->dmxData, DMX_PACKET_SIZE);

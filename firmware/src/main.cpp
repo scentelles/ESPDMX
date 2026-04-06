@@ -42,6 +42,10 @@ struct ShowPlayback {
   uint32_t stepStartTime;
   bool inTransition;
   uint32_t transitionStartTime;
+  // Snapshot of DMX values at start of smooth transition (channels 1-512)
+  uint8_t prevDmx[513];
+  uint8_t targetDmx[513];
+  bool smoothActive;  // true when currently doing smooth interpolation
 } showPlayback;
 
 // Variables
@@ -284,6 +288,33 @@ void loop() {
   delay(10);
 }
 
+// ── Compute scene DMX values into a buffer (without applying) ────────
+void computeSceneDmx(const String& sceneId, uint8_t* buf) {
+  Scene* scene = sceneManager.getScene(sceneId);
+  if (!scene) return;
+  
+  for (const auto& fv : scene->fixtureValues) {
+    FixtureDef* fixture = sceneManager.getFixture(fv.fixtureId);
+    if (!fixture || !fixture->enabled) continue;
+    
+    for (const auto& ch : fixture->channels) {
+      auto it = fv.values.find(ch.name);
+      uint8_t value;
+      if (it != fv.values.end()) {
+        value = it->second;
+      } else if (ch.type == "dimmer") {
+        value = 255;
+      } else {
+        value = ch.defaultValue;
+      }
+      uint16_t dmxAddr = fixture->dmxAddress + ch.offset;
+      if (dmxAddr >= 1 && dmxAddr <= 512) {
+        buf[dmxAddr] = value;
+      }
+    }
+  }
+}
+
 // ── Apply a scene to DMX output ──────────────────────────────────────
 void applyScene(const String& sceneId) {
   Scene* scene = sceneManager.getScene(sceneId);
@@ -310,7 +341,6 @@ void applyScene(const String& sceneId) {
       if (it != fv.values.end()) {
         value = it->second;
       } else if (ch.type == "dimmer") {
-        // Dimmer channels default to 255 (full) so the fixture actually lights up
         value = 255;
       } else {
         value = ch.defaultValue;
@@ -344,15 +374,20 @@ void updateShowPlayback() {
   // During transition phase
   if (showPlayback.inTransition && step.transitionTime > 0) {
     if (elapsed < step.transitionTime) {
-      // Blend between previous and current scene
-      float blend = (float)elapsed / (float)step.transitionTime;
-      // For simplicity, just apply current scene (smooth transitions would need
-      // interpolation between two scenes' DMX values - implement later)
-      applyScene(step.sceneId);
+      // Smooth crossfade: interpolate DMX values between prev and target
+      if (showPlayback.smoothActive) {
+        float t = (float)elapsed / (float)step.transitionTime;
+        for (int i = 1; i <= 512; i++) {
+          uint8_t v = (uint8_t)((1.0f - t) * showPlayback.prevDmx[i] + t * showPlayback.targetDmx[i]);
+          dmxEngine.setChannelValue(i, v);
+        }
+      }
+      // If not smooth, scene was already applied at transition start
       return;
     } else {
-      // Transition complete, apply fully and start hold
+      // Transition complete, apply target fully and start hold
       showPlayback.inTransition = false;
+      showPlayback.smoothActive = false;
       showPlayback.stepStartTime = now;
       applyScene(step.sceneId);
       return;
@@ -373,12 +408,26 @@ void updateShowPlayback() {
         return;
       }
     }
+    
+    ShowStep& nextStep = show->steps[showPlayback.currentStep];
     showPlayback.stepStartTime = now;
     showPlayback.inTransition = true;
-    // Apply next step's scene immediately if no transition
-    ShowStep& nextStep = show->steps[showPlayback.currentStep];
+    showPlayback.smoothActive = false;
+    
     if (nextStep.transitionTime == 0) {
+      // No transition — apply immediately
       showPlayback.inTransition = false;
+      applyScene(nextStep.sceneId);
+    } else if (nextStep.smoothTransition) {
+      // Smooth transition: snapshot current DMX state, compute target
+      showPlayback.smoothActive = true;
+      for (int i = 1; i <= 512; i++) {
+        showPlayback.prevDmx[i] = dmxEngine.getChannelValue(i);
+      }
+      memset(showPlayback.targetDmx, 0, sizeof(showPlayback.targetDmx));
+      computeSceneDmx(nextStep.sceneId, showPlayback.targetDmx);
+    } else {
+      // Hard cut at start of transition (original behavior)
       applyScene(nextStep.sceneId);
     }
   }
@@ -512,6 +561,16 @@ void setupServer() {
       // channelCount = DMX footprint (highest offset + 1)
       f.channelCount = f.channels.empty() ? 1 : (maxOffset + 1);
       
+      // Parse strobe channel config
+      if (doc.containsKey("strobeChannel")) {
+        JsonObject sc = doc["strobeChannel"];
+        f.strobeChannel.enabled = sc["enabled"] | false;
+        f.strobeChannel.offset = sc["offset"] | 0;
+        f.strobeChannel.value = sc["value"] | 255;
+      } else {
+        f.strobeChannel = {false, 0, 255};
+      }
+      
       sceneManager.saveFixture(f);
       
       // Log saved fixture channel mapping for debugging
@@ -635,6 +694,7 @@ void setupServer() {
         step.sceneId = stepObj["sceneId"].as<String>();
         step.duration = stepObj["duration"] | 5000;
         step.transitionTime = stepObj["transitionTime"] | 1000;
+        step.smoothTransition = stepObj["smoothTransition"] | false;
         s.steps.push_back(step);
       }
       
@@ -795,6 +855,15 @@ void setupServer() {
         dmxEngine.setStrobeSpeed(doc["speed"]);
         dmxEngine.setStrobeActive(true);
         systemState.strobeActive = true;
+        // Set strobe channel DMX value for fixtures that have it
+        for (const auto& f : sceneManager.getFixtures()) {
+          if (f.enabled && f.strobeChannel.enabled) {
+            uint16_t addr = f.dmxAddress + f.strobeChannel.offset;
+            if (addr >= 1 && addr <= 512) {
+              dmxEngine.setChannelValue(addr, f.strobeChannel.value);
+            }
+          }
+        }
       }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     }, NULL,
@@ -808,6 +877,15 @@ void setupServer() {
     [](AsyncWebServerRequest* request) {
       dmxEngine.setStrobeActive(false);
       systemState.strobeActive = false;
+      // Reset strobe channel DMX value to 0 for fixtures that have it
+      for (const auto& f : sceneManager.getFixtures()) {
+        if (f.enabled && f.strobeChannel.enabled) {
+          uint16_t addr = f.dmxAddress + f.strobeChannel.offset;
+          if (addr >= 1 && addr <= 512) {
+            dmxEngine.setChannelValue(addr, 0);
+          }
+        }
+      }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
   

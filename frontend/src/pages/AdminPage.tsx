@@ -200,6 +200,44 @@ const FixtureEditor: React.FC<FixtureEditorProps> = ({ fixture, onChange, onSave
         </label>
       </div>
 
+      {/* Strobe channel config */}
+      <div className="mb-4 p-3 bg-slate-900 rounded border border-slate-700">
+        <label className="flex items-center gap-2 text-sm text-slate-300 mb-2">
+          <input
+            type="checkbox"
+            checked={fixture.strobeChannel?.enabled ?? false}
+            onChange={(e) => onChange({ ...fixture, strobeChannel: { offset: fixture.strobeChannel?.offset ?? 0, value: fixture.strobeChannel?.value ?? 255, enabled: e.target.checked } })}
+            className="accent-yellow-500"
+          />
+          Canal Stroboscope
+        </label>
+        {fixture.strobeChannel?.enabled && (
+          <div className="flex items-center gap-4 mt-2">
+            <Input
+              label="Offset DMX"
+              type="number"
+              min={0}
+              max={511}
+              value={fixture.strobeChannel.offset}
+              onChange={(e) => onChange({ ...fixture, strobeChannel: { ...fixture.strobeChannel!, offset: parseInt(e.target.value) || 0 } })}
+              className="w-24"
+            />
+            <Input
+              label="Valeur (0-255)"
+              type="number"
+              min={0}
+              max={255}
+              value={fixture.strobeChannel.value}
+              onChange={(e) => onChange({ ...fixture, strobeChannel: { ...fixture.strobeChannel!, value: parseInt(e.target.value) || 0 } })}
+              className="w-24"
+            />
+            <span className="text-xs text-slate-500 mt-5">
+              → DMX {fixture.dmxAddress + (fixture.strobeChannel.offset ?? 0)}
+            </span>
+          </div>
+        )}
+      </div>
+
       <div className="flex gap-2">
         <Button variant="primary" onClick={onSave} className="flex-1 flex items-center justify-center gap-2">
           <Save size={20} /> Enregistrer le Projecteur
@@ -387,7 +425,7 @@ const ShowEditor: React.FC<ShowEditorProps> = ({ show, scenes, onChange, onSave,
     if (scenes.length === 0) return;
     onChange({
       ...show,
-      steps: [...show.steps, { sceneId: scenes[0].id, duration: 5000, transitionTime: 1000 }],
+      steps: [...show.steps, { sceneId: scenes[0].id, duration: 5000, transitionTime: 1000, smoothTransition: false }],
     });
   };
 
@@ -520,6 +558,19 @@ const ShowEditor: React.FC<ShowEditorProps> = ({ show, scenes, onChange, onSave,
                   </div>
                 </div>
               </div>
+              {step.transitionTime > 0 && (
+                <div className="pl-8 mt-1">
+                  <label className="flex items-center gap-2 text-xs text-slate-400">
+                    <input
+                      type="checkbox"
+                      checked={step.smoothTransition ?? false}
+                      onChange={(e) => updateStep(idx, { smoothTransition: e.target.checked })}
+                      className="accent-pink-500"
+                    />
+                    Transition progressive (fondu DMX)
+                  </label>
+                </div>
+              )}
             </div>
           ))}
         </div>

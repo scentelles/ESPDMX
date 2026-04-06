@@ -9,6 +9,12 @@ export interface ChannelDefinition {
   type: ChannelType;
 }
 
+export interface StrobeChannelConfig {
+  enabled: boolean;
+  offset: number;       // DMX offset from fixture base address
+  value: number;        // Value to send when strobe is triggered (0-255)
+}
+
 export interface DMXFixture {
   id: string;
   name: string;
@@ -17,6 +23,7 @@ export interface DMXFixture {
   channelCount: number;
   channels: ChannelDefinition[];
   enabled: boolean;
+  strobeChannel?: StrobeChannelConfig;
 }
 
 export interface FixtureChannelValue {
@@ -44,6 +51,7 @@ export interface ShowStep {
   sceneId: string;
   duration: number;       // ms to hold this scene
   transitionTime: number; // ms to fade/transition into this scene
+  smoothTransition: boolean; // progressive DMX value interpolation
 }
 
 export interface DynamicShow {

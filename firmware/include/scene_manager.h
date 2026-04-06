@@ -14,6 +14,12 @@ struct ChannelDef {
   String type;  // "dimmer", "color", "position", "speed", "gobo", "other"
 };
 
+struct StrobeChannelCfg {
+  bool enabled;
+  uint8_t offset;
+  uint8_t value;
+};
+
 struct FixtureDef {
   String id;
   String name;
@@ -22,6 +28,7 @@ struct FixtureDef {
   uint8_t channelCount;
   std::vector<ChannelDef> channels;
   bool enabled;
+  StrobeChannelCfg strobeChannel;
 };
 
 struct FixtureChannelValues {
@@ -41,6 +48,7 @@ struct ShowStep {
   String sceneId;
   uint32_t duration;       // ms to hold
   uint32_t transitionTime; // ms to fade
+  bool smoothTransition;   // progressive DMX value interpolation
 };
 
 struct Show {

@@ -38,6 +38,7 @@ void SceneManager::loadDefaultFixtures() {
   f.channels.push_back({"Green", 5, 0, "color"});
   f.channels.push_back({"Blue", 6, 0, "color"});
   f.channels.push_back({"White", 7, 0, "color"});
+  f.strobeChannel = {false, 0, 255};
   fixtures.push_back(f);
 }
 
@@ -77,9 +78,9 @@ void SceneManager::loadDefaultShows() {
   sh.icon = "🌈";
   sh.loop = true;
   sh.isRunning = false;
-  sh.steps.push_back({"scene-warm", 5000, 2000});
-  sh.steps.push_back({"scene-red", 5000, 2000});
-  sh.steps.push_back({"scene-blue", 5000, 2000});
+  sh.steps.push_back({"scene-warm", 5000, 2000, false});
+  sh.steps.push_back({"scene-red", 5000, 2000, false});
+  sh.steps.push_back({"scene-blue", 5000, 2000, false});
   shows.push_back(sh);
 }
 
@@ -222,6 +223,10 @@ String SceneManager::getFixturesJSON() {
       chObj["defaultValue"] = ch.defaultValue;
       chObj["type"] = ch.type;
     }
+    JsonObject strobe = obj.createNestedObject("strobeChannel");
+    strobe["enabled"] = f.strobeChannel.enabled;
+    strobe["offset"] = f.strobeChannel.offset;
+    strobe["value"] = f.strobeChannel.value;
   }
   
   String result;
@@ -273,6 +278,7 @@ String SceneManager::getShowsJSON() {
       stepObj["sceneId"] = step.sceneId;
       stepObj["duration"] = step.duration;
       stepObj["transitionTime"] = step.transitionTime;
+      stepObj["smoothTransition"] = step.smoothTransition;
     }
   }
   
@@ -320,6 +326,10 @@ bool SceneManager::saveFixturesToFile() {
       chObj["defaultValue"] = ch.defaultValue;
       chObj["type"] = ch.type;
     }
+    JsonObject strobe = obj.createNestedObject("strobeChannel");
+    strobe["enabled"] = f.strobeChannel.enabled;
+    strobe["offset"] = f.strobeChannel.offset;
+    strobe["value"] = f.strobeChannel.value;
   }
   String saved;
   serializeJson(doc, saved);
@@ -365,6 +375,14 @@ bool SceneManager::loadFixturesFromFile() {
       ch.defaultValue = chObj["defaultValue"] | 0;
       ch.type = chObj["type"].as<String>();
       f.channels.push_back(ch);
+    }
+    if (obj.containsKey("strobeChannel")) {
+      JsonObject sc = obj["strobeChannel"];
+      f.strobeChannel.enabled = sc["enabled"] | false;
+      f.strobeChannel.offset = sc["offset"] | 0;
+      f.strobeChannel.value = sc["value"] | 255;
+    } else {
+      f.strobeChannel = {false, 0, 255};
     }
     fixtures.push_back(f);
   }
@@ -449,6 +467,7 @@ bool SceneManager::saveShowsToFile() {
       stepObj["sceneId"] = step.sceneId;
       stepObj["duration"] = step.duration;
       stepObj["transitionTime"] = step.transitionTime;
+      stepObj["smoothTransition"] = step.smoothTransition;
     }
   }
   serializeJson(doc, file);
@@ -481,6 +500,7 @@ bool SceneManager::loadShowsFromFile() {
       step.sceneId = stepObj["sceneId"].as<String>();
       step.duration = stepObj["duration"] | 5000;
       step.transitionTime = stepObj["transitionTime"] | 1000;
+      step.smoothTransition = stepObj["smoothTransition"] | false;
       s.steps.push_back(step);
     }
     shows.push_back(s);
