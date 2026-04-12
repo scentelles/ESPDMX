@@ -51,7 +51,7 @@ DisplayManager::DisplayManager()
 
 void DisplayManager::begin() {
   display.init();
-  display.flipScreenVertically();  // LOLIN32 OLED is mounted upside down
+  // No flip needed — this ESP32 OLED board has the screen in normal orientation
   display.setContrast(255);
   display.clear();
   display.display();
@@ -153,64 +153,102 @@ void DisplayManager::showStatus(const DisplayStatus& status) {
   // Separator line
   display.drawHorizontalLine(0, 12, 128);
 
-  // ── Row 1: Active scene or show ──
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.setFont(ArialMT_Plain_10);
-
-  if (status.showRunning && status.activeShow.length() > 0) {
-    display.drawString(0, 15, "Show:");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(32, 13, truncate(status.activeShow, 12));
-    // Running indicator
-    if ((millis() / 500) % 2 == 0) {
-      display.fillCircle(123, 20, 3);
-    } else {
-      display.drawCircle(123, 20, 3);
-    }
-  } else if (status.activeScene.length() > 0) {
-    display.drawString(0, 15, "Scene:");
-    display.setFont(ArialMT_Plain_16);
-    display.drawString(38, 13, truncate(status.activeScene, 11));
-  } else {
-    display.setFont(ArialMT_Plain_10);
-    display.drawString(0, 15, "Aucune scene active");
-  }
-
-  // Separator
-  display.drawHorizontalLine(0, 31, 128);
-
-  // ── Row 2: Fixtures + CPU load ──
-  display.setFont(ArialMT_Plain_10);
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  display.drawString(0, 34, "Fix:" + String(status.enabledFixtures) + "/" + String(status.fixtureCount));
-
-  // CPU load
-  display.setTextAlignment(TEXT_ALIGN_CENTER);
-  display.drawString(75, 34, "CPU:" + String(status.cpuLoad) + "%");
-
-  // DMX indicator
-  display.setTextAlignment(TEXT_ALIGN_LEFT);
-  drawDMXIcon(108, 34, status.dmxActive);
-  display.drawString(120, 34, "D");
-
-  // ── Row 3: Master brightness bar + effects ──
-  display.drawString(0, 48, "Bri:");
-  drawProgressBar(24, 50, 60, 8, status.masterBrightness);
-
-  // Effect indicators
-  display.setTextAlignment(TEXT_ALIGN_RIGHT);
   if (status.soundMode > 0) {
-    // Show mic icon + volume bar when sound mode active
-    if ((millis() / 300) % 2 == 0 || status.soundVolume > 20) {
-      display.drawString(112, 48, "MIC");
+    // ── AUDIO VISUALIZER ──
+    static uint8_t volHist[64] = {0};
+    static uint8_t histIdx = 0;
+    
+    volHist[histIdx] = status.soundVolume;
+    histIdx = (histIdx + 1) % 64;
+    
+    // Waveform box on the left
+    display.drawRect(0, 15, 64, 49);
+    for (int i = 0; i < 63; i++) {
+      int pIdx = (histIdx + i) % 64;
+      int nIdx = (histIdx + i + 1) % 64;
+      int y1 = 63 - (volHist[pIdx] * 47 / 100);
+      int y2 = 63 - (volHist[nIdx] * 47 / 100);
+      display.drawLine(i, y1, i + 1, y2);
     }
-  } else if (status.strobeActive) {
-    if ((millis() / 100) % 2 == 0) {
-      display.drawString(112, 48, "STR");
+    
+    // Vertical VU Meters helper
+    auto drawVertBar = [&](int x, int y, int w, int h, int pct) {
+      display.drawRect(x, y, w, h);
+      int fillH = (pct * (h - 2)) / 100;
+      if (fillH > 0) display.fillRect(x + 1, y + h - 1 - fillH, w - 2, fillH);
+    };
+
+    display.setFont(ArialMT_Plain_10);
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    
+    display.drawString(75, 52, "B");
+    drawVertBar(71, 15, 8, 36, status.soundBass);
+    
+    display.drawString(95, 52, "M");
+    drawVertBar(91, 15, 8, 36, status.soundMid);
+    
+    display.drawString(115, 52, "H");
+    drawVertBar(111, 15, 8, 36, status.soundHigh);
+    
+    // Peak / Beat indicator (top right)
+    if (status.soundPeak > 85) display.fillCircle(123, 20, 3);
+    else display.drawCircle(123, 20, 3);
+
+  } else {
+    // ── Row 1: Active scene or show ──
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.setFont(ArialMT_Plain_10);
+  
+    if (status.showRunning && status.activeShow.length() > 0) {
+      display.drawString(0, 15, "Show:");
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(32, 13, truncate(status.activeShow, 12));
+      // Running indicator
+      if ((millis() / 500) % 2 == 0) {
+        display.fillCircle(123, 20, 3);
+      } else {
+        display.drawCircle(123, 20, 3);
+      }
+    } else if (status.activeScene.length() > 0) {
+      display.drawString(0, 15, "Scene:");
+      display.setFont(ArialMT_Plain_16);
+      display.drawString(38, 13, truncate(status.activeScene, 11));
+    } else {
+      display.setFont(ArialMT_Plain_10);
+      display.drawString(0, 15, "Aucune scene active");
     }
-  }
-  if (status.smokeActive) {
-    display.drawString(128, 48, "SMK");
+  
+    // Separator
+    display.drawHorizontalLine(0, 31, 128);
+  
+    // ── Row 2: Fixtures + CPU load ──
+    display.setFont(ArialMT_Plain_10);
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    display.drawString(0, 34, "Fix:" + String(status.enabledFixtures) + "/" + String(status.fixtureCount));
+  
+    // CPU load
+    display.setTextAlignment(TEXT_ALIGN_CENTER);
+    display.drawString(75, 34, "CPU:" + String(status.cpuLoad) + "%");
+  
+    // DMX indicator
+    display.setTextAlignment(TEXT_ALIGN_LEFT);
+    drawDMXIcon(108, 34, status.dmxActive);
+    display.drawString(120, 34, "D");
+  
+    // ── Row 3: Master brightness bar + effects ──
+    display.drawString(0, 48, "Bri:");
+    drawProgressBar(24, 50, 60, 8, status.masterBrightness);
+  
+    // Effect indicators
+    display.setTextAlignment(TEXT_ALIGN_RIGHT);
+    if (status.strobeActive) {
+      if ((millis() / 100) % 2 == 0) {
+        display.drawString(112, 48, "STR");
+      }
+    }
+    if (status.smokeActive) {
+      display.drawString(128, 48, "SMK");
+    }
   }
 
   display.display();

@@ -35,6 +35,10 @@ struct DisplayStatus {
   uint8_t cpuLoad;
   uint8_t soundMode;    // 0=off, 1-4=active modes
   uint8_t soundVolume;  // 0-100
+  uint8_t soundBass;    // 0-100
+  uint8_t soundMid;     // 0-100
+  uint8_t soundHigh;    // 0-100
+  uint8_t soundPeak;    // 0-100
 };
 
 class DisplayManager {

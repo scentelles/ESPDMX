@@ -193,6 +193,16 @@ class APIService {
     }
   }
 
+  // Audio
+  async getAudio(): Promise<{
+    volume: number; bass: number; mid: number; high: number;
+    peak: number; beat: boolean; mode: number; sensitivity: number;
+    diag: { rawMin: number; rawMax: number; rawRms: number; rawSpan: number };
+  }> {
+    const response = await this.api.get('/audio');
+    return response.data;
+  }
+
   // System
   async getLightingState(): Promise<LightingState> {
     const response = await this.api.get('/state');

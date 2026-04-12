@@ -242,17 +242,22 @@ void loop() {
     cpuLoadPercent = (load0 + load1) / 2;
   }
   
-  // Update OLED display every 500ms
-  if (millis() - lastDisplayUpdate >= 500) {
+  // Update OLED display (50ms for smooth audio visualizer, 500ms otherwise)
+  uint32_t displayInterval = (audioManager.getMode() != SOUND_OFF) ? 50 : 500;
+  if (millis() - lastDisplayUpdate >= displayInterval) {
     lastDisplayUpdate = millis();
     
-    // Debug: print DMX channels 1-10
-    Serial.printf("DMX[1-10]: %d %d %d %d %d %d %d %d %d %d\n",
-      dmxEngine.getChannelValue(1), dmxEngine.getChannelValue(2),
-      dmxEngine.getChannelValue(3), dmxEngine.getChannelValue(4),
-      dmxEngine.getChannelValue(5), dmxEngine.getChannelValue(6),
-      dmxEngine.getChannelValue(7), dmxEngine.getChannelValue(8),
-      dmxEngine.getChannelValue(9), dmxEngine.getChannelValue(10));
+    // Debug: print DMX channels 1-10 occasionally (every ~2 seconds)
+    static uint32_t lastDmxLog = 0;
+    if (millis() - lastDmxLog >= 2000) {
+      lastDmxLog = millis();
+      Serial.printf("DMX[1-10]: %d %d %d %d %d %d %d %d %d %d\n",
+        dmxEngine.getChannelValue(1), dmxEngine.getChannelValue(2),
+        dmxEngine.getChannelValue(3), dmxEngine.getChannelValue(4),
+        dmxEngine.getChannelValue(5), dmxEngine.getChannelValue(6),
+        dmxEngine.getChannelValue(7), dmxEngine.getChannelValue(8),
+        dmxEngine.getChannelValue(9), dmxEngine.getChannelValue(10));
+    }
     
     DisplayStatus dStatus;
     dStatus.wifiConnected = (WiFi.status() == WL_CONNECTED);
@@ -279,8 +284,12 @@ void loop() {
     dStatus.freeMemory = systemState.freeMemory;
     dStatus.cpuLoad = cpuLoadPercent;
     dStatus.soundMode = (uint8_t)audioManager.getMode();
-    dStatus.soundVolume = (uint8_t)(audioManager.getData().volume * 100);
-    
+    AudioData ad = audioManager.getData();
+    dStatus.soundVolume = (uint8_t)(ad.volume * 100);
+    dStatus.soundBass = (uint8_t)(ad.bass * 100);
+    dStatus.soundMid = (uint8_t)(ad.mid * 100);
+    dStatus.soundHigh = (uint8_t)(ad.high * 100);
+    dStatus.soundPeak = (uint8_t)(ad.peak * 100);
     displayManager.showStatus(dStatus);
   }
   
@@ -977,6 +986,34 @@ void setupServer() {
       audioManager.setMode(SOUND_OFF);
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
+  
+  // ── Audio: Real-time levels (GET) ──
+  server.on("/api/audio", HTTP_GET, [](AsyncWebServerRequest* request) {
+    AudioData ad = audioManager.getData();
+    DynamicJsonDocument doc(512);
+    doc["volume"] = (int)(ad.volume * 100);
+    doc["bass"] = (int)(ad.bass * 100);
+    doc["mid"] = (int)(ad.mid * 100);
+    doc["high"] = (int)(ad.high * 100);
+    doc["peak"] = (int)(ad.peak * 100);
+    doc["beat"] = ad.beatDetected;
+    doc["mode"] = (int)audioManager.getMode();
+    doc["sensitivity"] = ad.sensitivity;
+    
+    // Raw diagnostic
+    int32_t rawMin, rawMax;
+    float diagRms;
+    audioManager.readDiagnostic(rawMin, rawMax, diagRms);
+    JsonObject diag = doc.createNestedObject("diag");
+    diag["rawMin"] = rawMin;
+    diag["rawMax"] = rawMax;
+    diag["rawRms"] = (int)(diagRms * 10000);  // scaled x10000
+    diag["rawSpan"] = rawMax - rawMin;
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
 
   // ── Control: Direct DMX channel (test sliders) ──
   server.on("/api/control/dmx", HTTP_POST,

@@ -16,18 +16,18 @@
 #define DMX_CHANNELS 512             // Full DMX universe
 
 // I2S Microphone Configuration (INMP441)
-#define I2S_WS_PIN  25               // GPIO25 - Word Select (LRCLK)
-#define I2S_BCK_PIN 26               // GPIO26 - Bit Clock (BCLK)
-#define I2S_SD_PIN  14               // GPIO14 - Serial Data (DOUT)
+#define I2S_WS_PIN  33               // GPIO33 - Word Select (LRCLK)
+#define I2S_BCK_PIN 32               // GPIO32 - Bit Clock (BCLK)
+#define I2S_SD_PIN  34               // GPIO34 - Serial Data (DOUT) — input-only, reliable
 
 // System Configuration
 #define ADMIN_PIN "1234"             // Default admin PIN (change in settings!)
 #define UPDATE_INTERVAL 500          // milliseconds between state broadcasts
 #define MAX_FIXTURES 64
 
-// OLED Display Configuration (SSD1306 128x64)
-#define OLED_SDA 5
-#define OLED_SCL 4
+// OLED Display Configuration (SSD1306 128x64 - ESP32 OLED Board)
+#define OLED_SDA 21
+#define OLED_SCL 22
 #define OLED_ADDRESS 0x3C
 #define OLED_BOOT_DURATION 2500       // ms to show boot logo
 

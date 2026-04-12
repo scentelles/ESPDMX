@@ -13,6 +13,7 @@ AudioManager::AudioManager()
   memset(sampleBuffer, 0, sizeof(sampleBuffer));
   memset(energyHistory, 0, sizeof(energyHistory));
   audioData = {0, 0, 0, 0, false, 0, 5};
+  fft = new ArduinoFFT<double>(vReal, vImag, SAMPLES, SAMPLE_RATE);
 }
 
 void AudioManager::begin() {
@@ -57,79 +58,137 @@ void AudioManager::begin() {
 }
 
 void AudioManager::update() {
-  if (currentMode == SOUND_OFF) return;
-
-  // Read I2S samples
+  static uint32_t lastAudioLog = 0;
+  
+  // Always read I2S so audio data is available for diagnostics and VU meter
   size_t bytesRead = 0;
-  i2s_read(I2S_NUM_0, sampleBuffer, sizeof(sampleBuffer), &bytesRead, 10);
+  esp_err_t err = i2s_read(I2S_NUM_0, sampleBuffer, sizeof(sampleBuffer), &bytesRead, 10);
 
   int samplesRead = bytesRead / sizeof(int32_t);
+  
+  // Debug log every 2 seconds
+  if (millis() - lastAudioLog >= 2000) {
+    lastAudioLog = millis();
+    Serial.printf("I2S: err=%d bytes=%d samples=%d", err, bytesRead, samplesRead);
+    if (samplesRead > 0) {
+      int32_t mn = sampleBuffer[0] >> 8, mx = mn;
+      for (int i = 1; i < samplesRead; i++) {
+        int32_t s = sampleBuffer[i] >> 8;
+        if (s < mn) mn = s;
+        if (s > mx) mx = s;
+      }
+      Serial.printf(" raw[0]=%d min=%d max=%d span=%d", (int)(sampleBuffer[0]>>8), mn, mx, mx-mn);
+      Serial.printf(" vol=%d%% bass=%d%% mid=%d%% high=%d%%",
+        (int)(audioData.volume*100), (int)(audioData.bass*100),
+        (int)(audioData.mid*100), (int)(audioData.high*100));
+    }
+    Serial.println();
+  }
+  
   if (samplesRead < 16) return;
 
   processAudio();
+}
+
+// Diagnostic: read a batch of raw samples and return min/max/rms
+void AudioManager::readDiagnostic(int32_t &rawMin, int32_t &rawMax, float &rmsOut) {
+  size_t bytesRead = 0;
+  i2s_read(I2S_NUM_0, sampleBuffer, sizeof(sampleBuffer), &bytesRead, 50);
+  int count = bytesRead / sizeof(int32_t);
+  if (count < 1) { rawMin = rawMax = 0; rmsOut = 0; return; }
+  
+  int32_t mn = sampleBuffer[0] >> 8;
+  int32_t mx = mn;
+  double sumSq = 0;
+  for (int i = 0; i < count; i++) {
+    int32_t s = sampleBuffer[i] >> 8;
+    if (s < mn) mn = s;
+    if (s > mx) mx = s;
+    float norm = (float)s / 8388608.0f;
+    sumSq += norm * norm;
+  }
+  rawMin = mn;
+  rawMax = mx;
+  rmsOut = sqrtf(sumSq / count);
 }
 
 void AudioManager::processAudio() {
   int count = SAMPLES;
   float sensitivityMul = audioData.sensitivity / 5.0f;  // 1.0 at sens=5
 
-  // ── Compute RMS volume ──
-  double sumSq = 0;
-  float maxSample = 0;
+  // ── 1. Calculate DC offset and normalize ──
+  double mean = 0;
   for (int i = 0; i < count; i++) {
     // INMP441 outputs 24-bit left-aligned in 32-bit word; shift right 8
-    float sample = (float)(sampleBuffer[i] >> 8) / 8388608.0f;  // normalize to -1..1
+    int32_t raw = sampleBuffer[i] >> 8;
+    mean += (double)raw;
+  }
+  mean /= count;
+
+  // ── 2. Fill FFT input, compute RMS and Peak ──
+  double sumSq = 0;
+  float maxSample = 0;
+  
+  for (int i = 0; i < count; i++) {
+    int32_t raw = sampleBuffer[i] >> 8;
+    double val = (double)raw - mean; 
+    
+    // Normalize to -1..1
+    float sample = (float)(val / 8388608.0);
+    
+    vReal[i] = sample;
+    vImag[i] = 0.0;
+    
     sumSq += sample * sample;
     float absSample = fabsf(sample);
     if (absSample > maxSample) maxSample = absSample;
   }
+
   float rms = sqrtf(sumSq / count) * sensitivityMul;
   float peak = maxSample * sensitivityMul;
 
-  // Clamp to 0-1
   if (rms > 1.0f) rms = 1.0f;
   if (peak > 1.0f) peak = 1.0f;
 
-  // ── Simple frequency band estimation (time-domain) ──
-  // Split samples into 3 bands based on zero-crossing rate + energy
-  float lowEnergy = 0, midEnergy = 0, highEnergy = 0;
-  int zeroCrossings = 0;
+  // ── 3. Compute FFT ──
+  fft->windowing(FFT_WIN_TYP_HAMMING, FFT_FORWARD);
+  fft->compute(FFT_FORWARD);
+  fft->complexToMagnitude();
 
-  for (int i = 1; i < count; i++) {
-    float s0 = (float)(sampleBuffer[i - 1] >> 8) / 8388608.0f;
-    float s1 = (float)(sampleBuffer[i] >> 8) / 8388608.0f;
-    float energy = s1 * s1;
+  // ── 4. Extract Frequency Bands ──
+  // SAMPLES = 256, SAMPLE_RATE = 16000 -> Resolution = 62.5 Hz per bin
+  double bassSpan = 0, midSpan = 0, highSpan = 0;
 
-    if ((s0 >= 0 && s1 < 0) || (s0 < 0 && s1 >= 0)) {
-      zeroCrossings++;
+  for (int i = 1; i < (count / 2); i++) {
+    // Normalize FFT output magnitude. For N=256, a sine wave of amp A gives magnitude A * 128.
+    // Also apply a small boost to compensate for Hamming window energy loss.
+    double mag = (vReal[i] / 128.0) * sensitivityMul * 2.0; 
+    
+    if (i >= 1 && i <= 4) {         // 62 Hz - 250 Hz
+      if (mag > bassSpan) bassSpan = mag;
+    } 
+    else if (i >= 5 && i <= 32) {   // 312 Hz - 2000 Hz
+      // Voice & mid-range boost
+      if ((mag * 1.5) > midSpan) midSpan = mag * 1.5;
+    } 
+    else if (i >= 33 && i <= 127) { // 2062 Hz - 8000 Hz
+      // High frequencies are naturally lower amplitude, boost them more
+      if ((mag * 3.0) > highSpan) highSpan = mag * 3.0;
     }
-
-    // Window-based band split: first third = bass, middle = mid, last = high
-    int pos = (i * 3) / count;
-    if (pos == 0) lowEnergy += energy;
-    else if (pos == 1) midEnergy += energy;
-    else highEnergy += energy;
   }
 
-  int third = count / 3;
-  if (third == 0) third = 1;
-  lowEnergy = sqrtf(lowEnergy / third) * sensitivityMul * 3.0f;
-  midEnergy = sqrtf(midEnergy / third) * sensitivityMul * 3.0f;
-  highEnergy = sqrtf(highEnergy / third) * sensitivityMul * 4.0f;
-
-  // Also use zero-crossing rate: low ZCR = bass dominant, high ZCR = treble
-  float zcrRatio = (float)zeroCrossings / (float)count;
-  // Boost bass if ZCR is low, boost high if ZCR is high
-  lowEnergy *= (1.0f + (0.5f - zcrRatio) * 2.0f);
-  highEnergy *= (1.0f + (zcrRatio - 0.3f) * 2.0f);
+  float lowEnergy = (float)bassSpan;
+  float midEnergy = (float)midSpan;
+  float highEnergy = (float)highSpan;
 
   if (lowEnergy > 1.0f) lowEnergy = 1.0f;
   if (midEnergy > 1.0f) midEnergy = 1.0f;
   if (highEnergy > 1.0f) highEnergy = 1.0f;
   if (lowEnergy < 0) lowEnergy = 0;
+  if (midEnergy < 0) midEnergy = 0;
   if (highEnergy < 0) highEnergy = 0;
 
-  // ── Exponential smoothing ──
+  // ── 5. Exponential smoothing ──
   const float alpha = 0.3f;
   smoothVolume = smoothVolume * (1.0f - alpha) + rms * alpha;
   smoothBass = smoothBass * (1.0f - alpha) + lowEnergy * alpha;

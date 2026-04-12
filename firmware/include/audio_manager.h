@@ -6,6 +6,7 @@
 #include <Arduino.h>
 #include <driver/i2s.h>
 #include "config.h"
+#include <arduinoFFT.h>
 
 enum SoundMode {
   SOUND_OFF = 0,
@@ -31,6 +32,9 @@ public:
   void begin();
   void update();
 
+  // Diagnostic: read raw I2S samples and return min/max/rms
+  void readDiagnostic(int32_t &rawMin, int32_t &rawMax, float &rmsOut);
+
   // Current audio analysis results
   AudioData getData() const { return audioData; }
 
@@ -53,6 +57,10 @@ private:
   int32_t sampleBuffer[SAMPLES];
   AudioData audioData;
   SoundMode currentMode;
+
+  double vReal[SAMPLES];
+  double vImag[SAMPLES];
+  ArduinoFFT<double>* fft;
 
   // Beat detection state
   float energyHistory[8];

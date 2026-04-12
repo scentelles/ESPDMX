@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Settings, Plus, Trash2, Save, LogOut, GripVertical, ChevronDown, ChevronUp, Sliders, Play } from 'lucide-react';
+import { useEffect, useState, useRef, useCallback } from 'react';
+import { Settings, Plus, Trash2, Save, LogOut, GripVertical, ChevronDown, ChevronUp, Sliders, Play, Mic, MicOff, Volume2 } from 'lucide-react';
 import { Button, Card, Input, Select, Alert, LoadingSpinner, ErrorNotification } from '@/components/ui';
 import { useAppStore } from '@/store';
 import { apiService } from '@/services/api';
@@ -598,7 +598,15 @@ interface AdminPageProps {
 export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
   const store = useAppStore();
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'fixtures' | 'scenes' | 'shows' | 'dmxtest' | 'settings'>('fixtures');
+  const [activeTab, setActiveTab] = useState<'fixtures' | 'scenes' | 'shows' | 'dmxtest' | 'audio' | 'settings'>('fixtures');
+  // Audio state
+  const [audioData, setAudioData] = useState<{
+    volume: number; bass: number; mid: number; high: number;
+    peak: number; beat: boolean; mode: number; sensitivity: number;
+    diag: { rawMin: number; rawMax: number; rawRms: number; rawSpan: number };
+  } | null>(null);
+  const audioTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [audioHistory, setAudioHistory] = useState<number[]>([]);
   const [editingFixture, setEditingFixture] = useState<DMXFixture | null>(null);
   const [editingScene, setEditingScene] = useState<ColorScene | null>(null);
   const [editingShow, setEditingShow] = useState<DynamicShow | null>(null);
@@ -619,6 +627,53 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
   useEffect(() => {
     loadAdminData();
   }, []);
+
+  // Audio polling
+  const pollAudio = useCallback(async () => {
+    try {
+      const data = await apiService.getAudio();
+      setAudioData(data);
+      setAudioHistory(prev => {
+        const next = [...prev, data.volume];
+        if (next.length > 60) next.shift();
+        return next;
+      });
+    } catch { /* ignore polling errors */ }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'audio') {
+      pollAudio(); // immediate first poll
+      audioTimerRef.current = setInterval(pollAudio, 200);
+    } else {
+      if (audioTimerRef.current) {
+        clearInterval(audioTimerRef.current);
+        audioTimerRef.current = null;
+      }
+    }
+    return () => {
+      if (audioTimerRef.current) {
+        clearInterval(audioTimerRef.current);
+        audioTimerRef.current = null;
+      }
+    };
+  }, [activeTab, pollAudio]);
+
+  const handleSetSoundMode = async (mode: number) => {
+    try {
+      await apiService.setSoundMode(mode, audioData?.sensitivity);
+    } catch (e) {
+      store.setError('Erreur changement mode son');
+    }
+  };
+
+  const handleSetSensitivity = async (sens: number) => {
+    try {
+      await apiService.setSoundMode(audioData?.mode ?? 0, sens);
+    } catch (e) {
+      store.setError('Erreur changement sensibilité');
+    }
+  };
 
   const loadAdminData = async () => {
     try {
@@ -820,8 +875,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
       <div className="max-w-7xl mx-auto">
         {/* Navigation Tabs */}
         <div className="flex gap-2 mb-8 overflow-x-auto pb-2">
-          {(['fixtures', 'scenes', 'shows', 'dmxtest', 'settings'] as const).map((tab) => {
-            const tabLabels: Record<string, string> = { fixtures: 'Projecteurs', scenes: 'Scènes', shows: 'Shows', dmxtest: 'Test DMX', settings: 'Paramètres' };
+          {(['fixtures', 'scenes', 'shows', 'dmxtest', 'audio', 'settings'] as const).map((tab) => {
+            const tabLabels: Record<string, string> = { fixtures: 'Projecteurs', scenes: 'Scènes', shows: 'Shows', dmxtest: 'Test DMX', audio: '🎤 Audio', settings: 'Paramètres' };
             return (
               <button
                 key={tab}
@@ -1104,6 +1159,208 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
                   Tout à 255
                 </Button>
               </div>
+            </Card>
+          </div>
+        )}
+
+        {/* ═══ Audio Tab ═══ */}
+        {activeTab === 'audio' && (
+          <div className="space-y-6">
+            <Card>
+              <h2 className="text-2xl font-bold text-white mb-6 flex items-center gap-2">
+                <Volume2 /> 🎤 Micro INMP441 — VU Mètre
+              </h2>
+
+              {/* Connection status */}
+              <div className={`flex items-center gap-2 mb-6 px-4 py-2 rounded-lg border ${
+                audioData && (audioData.diag.rawSpan > 100)
+                  ? 'bg-green-900/30 border-green-700 text-green-400'
+                  : 'bg-red-900/30 border-red-700 text-red-400'
+              }`}>
+                {audioData && audioData.diag.rawSpan > 100 ? (
+                  <><Mic size={20} /> Micro détecté — Signal actif</>
+                ) : (
+                  <><MicOff size={20} /> Aucun signal détecté — Vérifiez le câblage</>
+                )}
+              </div>
+
+              {/* VU Meter bars */}
+              <div className="space-y-4 mb-8">
+                {/* Volume */}
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-slate-400">Volume</span>
+                    <span className="font-mono text-white font-bold">{audioData?.volume ?? 0}%</span>
+                  </div>
+                  <div className="h-6 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                    <div
+                      className="h-full rounded-full transition-all duration-150"
+                      style={{
+                        width: `${audioData?.volume ?? 0}%`,
+                        background: `linear-gradient(90deg, #22c55e ${0}%, #eab308 ${50}%, #ef4444 ${85}%)`,
+                      }}
+                    />
+                  </div>
+                </div>
+                {/* Peak */}
+                <div>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="text-slate-400">Peak</span>
+                    <span className="font-mono text-yellow-400 font-bold">{audioData?.peak ?? 0}%</span>
+                  </div>
+                  <div className="h-4 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                    <div
+                      className="h-full bg-yellow-500 rounded-full transition-all duration-100"
+                      style={{ width: `${audioData?.peak ?? 0}%` }}
+                    />
+                  </div>
+                </div>
+                {/* Bass / Mid / High */}
+                <div className="grid grid-cols-3 gap-4">
+                  {[{ label: 'Bass', key: 'bass' as const, color: '#ef4444' },
+                    { label: 'Mid', key: 'mid' as const, color: '#22c55e' },
+                    { label: 'High', key: 'high' as const, color: '#3b82f6' }
+                  ].map(band => (
+                    <div key={band.key}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-slate-400">{band.label}</span>
+                        <span className="font-mono text-white">{audioData?.[band.key] ?? 0}%</span>
+                      </div>
+                      <div className="h-3 bg-slate-800 rounded-full overflow-hidden border border-slate-700">
+                        <div
+                          className="h-full rounded-full transition-all duration-150"
+                          style={{ width: `${audioData?.[band.key] ?? 0}%`, backgroundColor: band.color }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                {/* Beat indicator */}
+                <div className="flex items-center gap-3">
+                  <span className="text-sm text-slate-400">Beat:</span>
+                  <div className={`w-6 h-6 rounded-full transition-all duration-100 ${
+                    audioData?.beat ? 'bg-orange-500 scale-125 shadow-lg shadow-orange-500/50' : 'bg-slate-700 scale-100'
+                  }`} />
+                </div>
+              </div>
+
+              {/* Volume history waveform */}
+              <div className="mb-8">
+                <h3 className="text-sm font-medium text-slate-300 mb-2">Historique Volume</h3>
+                <div className="h-20 bg-slate-900 rounded-lg border border-slate-700 flex items-end gap-px p-1 overflow-hidden">
+                  {audioHistory.map((v, i) => (
+                    <div
+                      key={i}
+                      className="flex-1 min-w-[2px] rounded-t"
+                      style={{
+                        height: `${Math.max(2, v)}%`,
+                        backgroundColor: v > 80 ? '#ef4444' : v > 50 ? '#eab308' : '#22c55e',
+                        transition: 'height 0.1s',
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Sound mode selector */}
+              <div className="mb-6">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">Mode Son Réactif</h3>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-2">
+                  {[
+                    { mode: 0, label: 'OFF', icon: '🔇', desc: 'Désactivé' },
+                    { mode: 1, label: 'Volume', icon: '📊', desc: 'Luminosité suit le volume' },
+                    { mode: 2, label: 'Beat', icon: '💥', desc: 'Flash sur les beats' },
+                    { mode: 3, label: 'Couleur', icon: '🌈', desc: 'Bass=R Mid=G High=B' },
+                    { mode: 4, label: 'VU', icon: '📈', desc: 'Vert → Jaune → Rouge' },
+                  ].map(m => (
+                    <button
+                      key={m.mode}
+                      onClick={() => handleSetSoundMode(m.mode)}
+                      className={`p-3 rounded-lg border text-left transition-all ${
+                        audioData?.mode === m.mode
+                          ? 'bg-purple-900/50 border-purple-500 text-white'
+                          : 'bg-slate-800 border-slate-700 text-slate-400 hover:bg-slate-700'
+                      }`}
+                    >
+                      <div className="text-lg mb-1">{m.icon}</div>
+                      <div className="font-semibold text-sm">{m.label}</div>
+                      <div className="text-xs text-slate-500 mt-1">{m.desc}</div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Sensitivity */}
+              <div className="mb-8">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm text-slate-300">Sensibilité</span>
+                  <span className="text-sm font-mono text-purple-400 font-bold">{audioData?.sensitivity ?? 5}</span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={audioData?.sensitivity ?? 5}
+                  onChange={(e) => handleSetSensitivity(parseInt(e.target.value))}
+                  className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-500"
+                />
+                <div className="flex justify-between text-xs text-slate-600 mt-1">
+                  <span>1 (faible)</span>
+                  <span>10 (max)</span>
+                </div>
+              </div>
+
+              {/* Raw diagnostic */}
+              <div className="p-4 bg-slate-900 rounded-lg border border-slate-700">
+                <h3 className="text-sm font-medium text-slate-300 mb-3">🔧 Diagnostic Micro (données brutes)</h3>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4 font-mono text-sm">
+                  <div>
+                    <div className="text-slate-500 text-xs">Raw Min</div>
+                    <div className="text-white">{audioData?.diag?.rawMin ?? '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500 text-xs">Raw Max</div>
+                    <div className="text-white">{audioData?.diag?.rawMax ?? '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500 text-xs">Raw Span</div>
+                    <div className={`font-bold ${
+                      (audioData?.diag?.rawSpan ?? 0) > 1000 ? 'text-green-400' :
+                      (audioData?.diag?.rawSpan ?? 0) > 100 ? 'text-yellow-400' : 'text-red-400'
+                    }`}>{audioData?.diag?.rawSpan ?? '—'}</div>
+                  </div>
+                  <div>
+                    <div className="text-slate-500 text-xs">Raw RMS (x10000)</div>
+                    <div className="text-white">{audioData?.diag?.rawRms ?? '—'}</div>
+                  </div>
+                </div>
+                <div className="mt-4 text-xs text-slate-600">
+                  Si Raw Span reste proche de 0, le micro ne capte rien. Vérifiez le câblage I2S.
+                </div>
+              </div>
+            </Card>
+
+            {/* Pin reference */}
+            <Card>
+              <h3 className="text-lg font-bold text-white mb-4">📌 Câblage INMP441</h3>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                {[
+                  { pin: 'VDD', esp: '3.3V', color: 'text-red-400' },
+                  { pin: 'GND', esp: 'GND', color: 'text-slate-400' },
+                  { pin: 'WS (LRCLK)', esp: 'GPIO 25', color: 'text-yellow-400' },
+                  { pin: 'SCK (BCLK)', esp: 'GPIO 26', color: 'text-green-400' },
+                  { pin: 'SD (DOUT)', esp: 'GPIO 14', color: 'text-blue-400' },
+                  { pin: 'L/R', esp: 'GND (canal gauche)', color: 'text-purple-400' },
+                ].map(p => (
+                  <div key={p.pin} className="bg-slate-800 rounded p-3 border border-slate-700">
+                    <div className="text-xs text-slate-500">{p.pin}</div>
+                    <div className={`font-mono font-bold ${p.color}`}>{p.esp}</div>
+                  </div>
+                ))}
+              </div>
+              <Alert variant="info" className="mt-4">
+                Le pin L/R de l'INMP441 doit être connecté à GND pour le canal gauche (configuration actuelle du firmware).
+              </Alert>
             </Card>
           </div>
         )}
