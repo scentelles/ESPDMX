@@ -146,7 +146,7 @@ export const UserPage: React.FC = () => {
       <div className="max-w-6xl mx-auto mb-8">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">✨ Contrôle Éclairage</h1>
+            <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">✨ SUD SHOW CONTROL</h1>
             <p className="text-slate-400">Créez l'ambiance parfaite pour votre événement</p>
           </div>
           <ConnectionIndicator connected={connected} />
@@ -180,23 +180,6 @@ export const UserPage: React.FC = () => {
           />
         </Card>
 
-        {/* Sound-Reactive Mode */}
-        <Card>
-          <div className="flex items-center gap-4 mb-4">
-            <Mic size={24} className="text-cyan-400" />
-            <h2 className="text-xl font-bold text-white">Mode Son Réactif</h2>
-            {(store.lightingState.soundMode ?? 0) > 0 && (
-              <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse ml-auto" />
-            )}
-          </div>
-          <SoundPanel
-            soundMode={store.lightingState.soundMode ?? 0}
-            sensitivity={store.lightingState.soundSensitivity ?? 5}
-            audio={store.lightingState.audio}
-            onModeChange={handleSoundModeChange}
-            onSensitivityChange={handleSoundSensitivity}
-          />
-        </Card>
 
         {/* Color Scenes */}
         {store.scenes.length > 0 && (
@@ -234,6 +217,24 @@ export const UserPage: React.FC = () => {
             />
           </Card>
         )}
+
+        {/* Sound-Reactive Mode (moved) */}
+        <Card>
+          <div className="flex items-center gap-4 mb-4">
+            <Mic size={24} className="text-cyan-400" />
+            <h2 className="text-xl font-bold text-white">Mode Son Réactif</h2>
+            {(store.lightingState.soundMode ?? 0) > 0 && (
+              <div className="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse ml-auto" />
+            )}
+          </div>
+          <SoundPanel
+            soundMode={store.lightingState.soundMode ?? 0}
+            sensitivity={store.lightingState.soundSensitivity ?? 5}
+            audio={store.lightingState.audio}
+            onModeChange={handleSoundModeChange}
+            onSensitivityChange={handleSoundSensitivity}
+          />
+        </Card>
       </div>
     </div>
   );

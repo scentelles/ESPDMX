@@ -4,7 +4,7 @@
 #define CONFIG_H
 
 // WiFi Configuration
-#define WIFI_SSID "ESP_EASY"
+#define WIFI_SSID "SUDSHOW"
 #define WIFI_PASSWORD "12345678"
 
 // Web Server Configuration

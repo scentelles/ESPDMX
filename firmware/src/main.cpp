@@ -80,7 +80,7 @@ String bodyBuffer;
 void setupWiFi();
 void setupServer();
 void applyScene(const String& sceneId);
-void applySceneValues(Scene* scene, float blend = 1.0f, Scene* fromScene = nullptr);
+void computeSceneDmx(const String& sceneId, uint8_t* buf);
 void updateShowPlayback();
 void handleNotFound(AsyncWebServerRequest* request);
 void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client,
