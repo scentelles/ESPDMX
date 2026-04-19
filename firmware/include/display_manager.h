@@ -1,10 +1,27 @@
-// Display Manager - OLED SSD1306 128x64 status display
+// Display Manager - TFT ST7735S 160x80 color display (landscape)
 
 #ifndef DISPLAY_MANAGER_H
 #define DISPLAY_MANAGER_H
 
-#include <SSD1306Wire.h>
+#include <TFT_eSPI.h>
 #include "config.h"
+
+// ── Color palette (RGB565) ──────────────────────────────────────────
+#define COL_BG        TFT_BLACK
+#define COL_TEXT      TFT_WHITE
+#define COL_DIM       0x7BEF    // Medium gray
+#define COL_DARK      0x2104    // Very dark gray
+#define COL_ACCENT    0x07FF    // Cyan
+#define COL_HEADER_BG 0x0A4A    // Dark teal
+#define COL_SCENE     0xFFE0    // Yellow
+#define COL_SHOW      0xF81F    // Magenta
+#define COL_OK        0x07E0    // Green
+#define COL_WARN      0xFD20    // Orange
+#define COL_ERR       0xF800    // Red
+#define COL_BASS      0xF800    // Red
+#define COL_MID       0x07E0    // Green
+#define COL_HIGH      0x041F    // Blue-cyan
+#define COL_WAVE      0x07FF    // Cyan
 
 enum DisplayScreen {
   SCREEN_BOOT_LOGO,
@@ -56,7 +73,8 @@ public:
   void update();
 
 private:
-  SSD1306Wire display;
+  TFT_eSPI tft;
+  TFT_eSprite spr;       // Full-screen sprite for flicker-free rendering
   DisplayScreen currentScreen;
   uint32_t lastUpdate;
   uint32_t screenStartTime;
@@ -66,7 +84,7 @@ private:
   void drawHeader(const String& title);
   void drawWiFiIcon(int x, int y, bool connected);
   void drawDMXIcon(int x, int y, bool active);
-  void drawProgressBar(int x, int y, int w, int h, int percent);
+  void drawProgressBar(int x, int y, int w, int h, int percent, uint16_t color = COL_OK);
   String formatUptime(uint32_t seconds);
   String truncate(const String& str, int maxLen);
 };

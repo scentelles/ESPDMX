@@ -150,7 +150,7 @@ void setup() {
   
   // Ensure boot logo is visible for a minimum time
   uint32_t bootStart = millis();
-  while (millis() - bootStart < OLED_BOOT_DURATION) {
+  while (millis() - bootStart < TFT_BOOT_DURATION) {
     delay(10);
   }
   

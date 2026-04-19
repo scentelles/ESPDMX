@@ -1,4 +1,4 @@
-// Configuration file for ESP32 DMX Lighting Controller
+// Configuration file for ESP32 DMX Lighting Controller (LOLIN D32 + ST7735S TFT)
 
 #ifndef CONFIG_H
 #define CONFIG_H
@@ -25,11 +25,12 @@
 #define UPDATE_INTERVAL 500          // milliseconds between state broadcasts
 #define MAX_FIXTURES 64
 
-// OLED Display Configuration (SSD1306 128x64 - ESP32 OLED Board)
-#define OLED_SDA 21
-#define OLED_SCL 22
-#define OLED_ADDRESS 0x3C
-#define OLED_BOOT_DURATION 2500       // ms to show boot logo
+// TFT Display Configuration (ST7735S 80x160 - SPI, landscape)
+// SPI pins configured via build_flags in platformio.ini (TFT_eSPI)
+#define TFT_BL_PIN 18                // Backlight control (BLK)
+#define SCREEN_W 160                 // Landscape width
+#define SCREEN_H 80                  // Landscape height
+#define TFT_BOOT_DURATION 2500       // ms to show boot logo
 
 // SPIFFS Configuration
 #define SPIFFS_FORMAT_IF_FAILED true
