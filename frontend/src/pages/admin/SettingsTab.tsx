@@ -8,6 +8,8 @@ import type { SystemConfig } from '@/types';
 export const SettingsTab = () => {
   const store = useAppStore();
   const [config, setConfig] = useState<Partial<SystemConfig>>({});
+  const [otaProgress, setOtaProgress] = useState<number>(-1);
+  const [otaStatus, setOtaStatus] = useState<string>('');
 
   useEffect(() => {
     loadConfig();
@@ -38,6 +40,27 @@ export const SettingsTab = () => {
       store.setError('Redémarrage en cours...');
     } catch (error: any) {
       store.setError(error.message);
+    }
+  };
+
+  const handleOTA = async (event: React.ChangeEvent<HTMLInputElement>, type: 'firmware' | 'spiffs') => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!confirm(`Êtes-vous sûr de vouloir flasher ce fichier (${file.name}) comme ${type} ? Le système redémarrera.`)) {
+      event.target.value = '';
+      return;
+    }
+
+    setOtaProgress(0);
+    setOtaStatus('Téléversement...');
+    try {
+      await apiService.uploadOTA(file, type, (pct) => setOtaProgress(pct));
+      setOtaStatus('Succès ! Redémarrage en cours...');
+      setTimeout(() => window.location.reload(), 4000);
+    } catch (e: any) {
+      setOtaStatus('Erreur OTA : ' + e.message);
+      setOtaProgress(-1);
     }
   };
 
@@ -84,6 +107,46 @@ export const SettingsTab = () => {
             value={config.updateInterval ?? 40} 
             onChange={e => setConfig({...config, updateInterval: parseInt(e.target.value) || 40})} 
           />
+        </div>
+      </Card>
+
+      <Card>
+        <h3 className="text-lg font-bold text-white mb-4">Mise à jour sans fil (OTA)</h3>
+        <p className="text-sm text-slate-300 mb-4">Sélectionnez les fichiers compilés (.bin) pour flasher l'appareil par Wi-Fi.</p>
+        
+        {otaProgress >= 0 && (
+          <div className="mb-4">
+            <div className="flex justify-between text-sm text-slate-300 mb-1">
+              <span>{otaStatus}</span>
+              <span>{otaProgress}%</span>
+            </div>
+            <div className="w-full bg-slate-700 rounded-full h-2.5">
+              <div className="bg-sky-500 h-2.5 rounded-full" style={{ width: `${otaProgress}%` }}></div>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="border border-slate-600 rounded-lg p-4">
+            <h4 className="font-semibold text-white mb-2">Mettre à jour le Firmware</h4>
+            <p className="text-xs text-slate-400 mb-4">Programme principal C++ (firmware.bin)</p>
+            <input 
+              type="file" 
+              accept=".bin" 
+              onChange={(e) => handleOTA(e, 'firmware')} 
+              className="text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-sky-50 file:text-sky-700 hover:file:bg-sky-100 cursor-pointer"
+            />
+          </div>
+          <div className="border border-slate-600 rounded-lg p-4">
+            <h4 className="font-semibold text-white mb-2">Mettre à jour l'Interface</h4>
+            <p className="text-xs text-slate-400 mb-4">Fichiers Web React (spiffs.bin)</p>
+            <input 
+              type="file" 
+              accept=".bin" 
+              onChange={(e) => handleOTA(e, 'spiffs')} 
+              className="text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
+            />
+          </div>
         </div>
       </Card>
 

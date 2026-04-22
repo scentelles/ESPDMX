@@ -13,8 +13,9 @@ import { ShowsTab } from './admin/ShowsTab';
 import { SettingsTab } from './admin/SettingsTab';
 import { ConsoleClassicTab } from './admin/ConsoleClassicTab';
 import { ConsoleVirtualTab } from './admin/ConsoleVirtualTab';
+import { DmxMonitorTab } from './admin/DmxMonitorTab';
 
-type AdminTab = 'catalog' | 'setups' | 'vgroups' | 'scenes' | 'shows' | 'console-classic' | 'console-virtual' | 'settings';
+type AdminTab = 'catalog' | 'setups' | 'vgroups' | 'scenes' | 'shows' | 'console-classic' | 'console-virtual' | 'dmx-monitor' | 'settings';
 
 interface AdminPageProps {
   onLogout: () => void;
@@ -59,6 +60,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
     { id: 'shows', label: 'Shows', icon: <Play size={18} /> },
     { id: 'console-classic', label: 'Console 512', icon: <Monitor size={18} /> },
     { id: 'console-virtual', label: 'Console Virtuelle', icon: <Mic size={18} /> }, // Using mic as placeholder or anything
+    { id: 'dmx-monitor', label: 'Moniteur DMX', icon: <LayoutGrid size={18} /> },
     { id: 'settings', label: 'Paramètres', icon: <Settings size={18} /> },
   ];
 
@@ -110,6 +112,7 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
             {activeTab === 'shows' && <ShowsTab />}
             {activeTab === 'console-classic' && <ConsoleClassicTab />}
             {activeTab === 'console-virtual' && <ConsoleVirtualTab />}
+            {activeTab === 'dmx-monitor' && <DmxMonitorTab />}
             {activeTab === 'settings' && <SettingsTab />}
          </div>
       </div>

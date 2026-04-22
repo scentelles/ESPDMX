@@ -4,6 +4,7 @@
 #include <DNSServer.h>
 #include <ESPAsyncWebServer.h>
 #include <SPIFFS.h>
+#include <Update.h>
 #include <ArduinoJson.h>
 #include "config.h"
 #include "dmx_engine.h"
@@ -396,7 +397,7 @@ void setupServer() {
   });
   
   server.on("/api/state", HTTP_GET, [](AsyncWebServerRequest* request) {
-    DynamicJsonDocument doc(1024);
+    DynamicJsonDocument doc(4096);
     doc["activeSetupId"] = sceneManager.getActiveSetupId();
     doc["activeScene"] = systemState.activeScene;
     doc["activeAmbiance"] = systemState.activeAmbiance;
@@ -416,8 +417,8 @@ void setupServer() {
     audio["beat"] = ad.beatDetected;
     
     JsonArray dmxOutput = doc.createNestedArray("dmxOutput");
-    for (int i = 0; i < 16; i++) {
-      dmxOutput.add(dmxEngine.getChannelValue(i + 1)); // returning first 16 for preview
+    for (int i = 0; i < 512; i++) {
+      dmxOutput.add(dmxEngine.getChannelValue(i + 1));
     }
     
     String response;
@@ -443,6 +444,38 @@ void setupServer() {
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
+  });
+
+  // ── OTA Updates ──
+  server.on("/api/system/update", HTTP_POST, [](AsyncWebServerRequest *request) {
+    bool shouldReboot = !Update.hasError();
+    AsyncWebServerResponse *response = request->beginResponse(200, "application/json", shouldReboot ? "{\"status\":\"ok\"}" : "{\"status\":\"error\"}");
+    response->addHeader("Connection", "close");
+    request->send(response);
+    if(shouldReboot) {
+      delay(100);
+      ESP.restart();
+    }
+  }, [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
+    if (!index) {
+      Serial.printf("Update Start: %s\n", filename.c_str());
+      int cmd = (request->hasParam("type") && request->getParam("type")->value() == "spiffs") ? U_SPIFFS : U_FLASH;
+      if (!Update.begin(UPDATE_SIZE_UNKNOWN, cmd)) {
+        Update.printError(Serial);
+      }
+    }
+    if (!Update.hasError()) {
+      if (Update.write(data, len) != len) {
+        Update.printError(Serial);
+      }
+    }
+    if (final) {
+      if (Update.end(true)) {
+        Serial.printf("Update Success: %uB\n", index + len);
+      } else {
+        Update.printError(Serial);
+      }
+    }
   });
 
   // ── Modifiers ──

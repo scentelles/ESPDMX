@@ -250,6 +250,23 @@ class APIService {
     const response = await this.api.get('/system/status');
     return response.data;
   }
+
+  async uploadOTA(file: File, type: 'firmware' | 'spiffs', onProgress: (pct: number) => void): Promise<void> {
+    const formData = new FormData();
+    formData.append('update', file);
+    await this.api.post(`/system/update?type=${type}`, formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+      onUploadProgress: (progressEvent) => {
+        if (progressEvent.total) {
+          const pct = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          onProgress(pct);
+        }
+      },
+      timeout: 120000, // Important: OTA can take a long time
+    });
+  }
 }
 
 export const apiService = new APIService();
