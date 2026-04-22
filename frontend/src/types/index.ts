@@ -15,19 +15,36 @@ export interface StrobeChannelConfig {
   value: number;        // Value to send when strobe is triggered (0-255)
 }
 
-export interface DMXFixture {
+export interface FixtureProfile {
   id: string;
   name: string;
-  type: string;
-  dmxAddress: number;
+  type: string;         // e.g., "rgb", "moving_head"
   channelCount: number;
   channels: ChannelDefinition[];
-  enabled: boolean;
   strobeChannel?: StrobeChannelConfig;
 }
 
+export interface FixtureInstance {
+  id: string;           // Unique instance ID
+  profileId: string;    // References FixtureProfile.id
+  name: string;         // E.g. "Front Wash Left"
+  dmxAddress: number;
+  enabled: boolean;
+}
+
+export interface VirtualGroupAssignment {
+  instanceId: string;
+  channelName: string;
+}
+
+export interface VirtualGroup {
+  id: string;
+  name: string;
+  assignments: VirtualGroupAssignment[];
+}
+
 export interface FixtureChannelValue {
-  fixtureId: string;
+  fixtureId: string;              // refers to instanceId
   values: Record<string, number>; // channel name -> value (0-255)
 }
 
@@ -37,14 +54,6 @@ export interface ColorScene {
   description: string;
   icon: string;
   fixtureValues: FixtureChannelValue[];
-}
-
-export interface Ambiance {
-  id: string;
-  name: string;
-  description: string;
-  icon: string;
-  scenes: string[]; // array of scene IDs
 }
 
 export interface ShowStep {
@@ -64,6 +73,15 @@ export interface DynamicShow {
   isRunning?: boolean;
 }
 
+export interface Setup {
+  id: string;
+  name: string;
+  instances: FixtureInstance[];
+  virtualGroups: VirtualGroup[];
+  scenes: ColorScene[];
+  shows: DynamicShow[];
+}
+
 export interface SystemConfig {
   wifiSSID: string;
   wifiPassword: string;
@@ -71,11 +89,12 @@ export interface SystemConfig {
   dmxBaud: number;
   maxFixtures: number;
   updateInterval: number;
+  activeSetupId?: string;
 }
 
 export interface LightingState {
+  activeSetupId?: string;
   activeScene?: string;
-  activeAmbiance?: string;
   activeShow?: string;
   strobeActive: boolean;
   smokeActive: boolean;

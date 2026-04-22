@@ -4,13 +4,13 @@ import { Card, Slider, LoadingSpinner, ErrorNotification } from '@/components/ui
 import {
   EffectButtons,
   SceneGrid,
-  AmbianceGrid,
   ShowGrid,
   ConnectionIndicator,
   SoundPanel,
 } from '@/components/index';
 import { useAppStore } from '@/store';
 import { apiService } from '@/services/api';
+import { ConsoleVirtualTab } from './admin/ConsoleVirtualTab';
 
 export const UserPage: React.FC = () => {
   const store = useAppStore();
@@ -27,16 +27,12 @@ export const UserPage: React.FC = () => {
 
   const loadUserData = async () => {
     try {
-      const [scenes, ambiances, shows, state] = await Promise.all([
-        apiService.getScenes(),
-        apiService.getAmbiances(),
-        apiService.getShows(),
+      const [setup, state] = await Promise.all([
+        apiService.getActiveSetup(),
         apiService.getLightingState(),
       ]);
 
-      store.setScenes(scenes);
-      store.setAmbiances(ambiances);
-      store.setShows(shows);
+      store.setActiveSetup(setup);
       store.setLightingState(state);
       setConnected(true);
       setLoading(false);
@@ -167,6 +163,11 @@ export const UserPage: React.FC = () => {
           />
         </Card>
 
+        {/* Virtual Console */}
+        {store.activeSetup?.virtualGroups && store.activeSetup.virtualGroups.length > 0 && (
+           <ConsoleVirtualTab />
+        )}
+
         {/* Effect Buttons */}
         <Card>
           <h2 className="text-xl font-bold text-white mb-4">Effets Rapides</h2>
@@ -182,35 +183,23 @@ export const UserPage: React.FC = () => {
 
 
         {/* Color Scenes */}
-        {store.scenes.length > 0 && (
+        {store.activeSetup?.scenes && store.activeSetup.scenes.length > 0 && (
           <Card>
             <h2 className="text-xl font-bold text-white mb-4">🎨 Scènes Couleur</h2>
             <SceneGrid
-              scenes={store.scenes}
+              scenes={store.activeSetup.scenes}
               onSceneSelect={handleSceneSelect}
               activeSceneId={store.lightingState.activeScene}
             />
           </Card>
         )}
 
-        {/* Ambiances */}
-        {store.ambiances.length > 0 && (
-          <Card>
-            <h2 className="text-xl font-bold text-white mb-4">🌙 Ambiances</h2>
-            <AmbianceGrid
-              ambiances={store.ambiances}
-              onAmbianceSelect={(id) => console.log('Ambiance selected:', id)}
-              activeAmbianceId={store.lightingState.activeAmbiance}
-            />
-          </Card>
-        )}
-
         {/* Dynamic Shows */}
-        {store.shows.length > 0 && (
+        {store.activeSetup?.shows && store.activeSetup.shows.length > 0 && (
           <Card>
             <h2 className="text-xl font-bold text-white mb-4">🎆 Shows Dynamiques</h2>
             <ShowGrid
-              shows={store.shows}
+              shows={store.activeSetup.shows}
               onShowStart={handleShowStart}
               activeShowId={store.lightingState.activeShow}
               isRunning={!!store.lightingState.activeShow}

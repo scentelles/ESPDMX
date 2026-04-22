@@ -1,9 +1,11 @@
 import axios, { AxiosInstance } from 'axios';
 import type {
   ColorScene,
-  Ambiance,
   DynamicShow,
-  DMXFixture,
+  FixtureProfile,
+  FixtureInstance,
+  VirtualGroup,
+  Setup,
   SystemConfig,
   LightingState,
 } from '@/types';
@@ -13,6 +15,7 @@ class APIService {
   private ws: WebSocket | null = null;
   private wsReady: boolean = false;
   private dmxPending: Map<number, number> = new Map();
+  private groupPending: Map<string, number> = new Map();
   private dmxTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
@@ -35,7 +38,6 @@ class APIService {
       this.ws.onclose = () => {
         this.wsReady = false;
         this.ws = null;
-        // Reconnect after 2s
         setTimeout(() => this.connectWebSocket(), 2000);
       };
       this.ws.onerror = () => {
@@ -46,84 +48,79 @@ class APIService {
     }
   }
 
-  // Scenes
-  async getScenes(): Promise<ColorScene[]> {
+  // Profiles (Catalog)
+  async getProfiles(): Promise<FixtureProfile[]> {
     try {
-      const response = await this.api.get('/scenes');
-      return Array.isArray(response.data) ? response.data : response.data.scenes || [];
-    } catch (error) {
-      console.error('Failed to fetch scenes:', error);
-      return [];
-    }
+      const response = await this.api.get('/profiles');
+      return response.data.profiles || [];
+    } catch { return []; }
   }
 
-  async saveScene(scene: ColorScene): Promise<ColorScene> {
-    const response = await this.api.post('/scenes', scene);
-    return response.data;
+  async saveProfile(profile: FixtureProfile): Promise<void> {
+    await this.api.post('/profiles', profile);
   }
 
+  async deleteProfile(id: string): Promise<void> {
+    await this.api.delete(`/profiles/${encodeURIComponent(id)}`);
+  }
+
+  // Setups (Configurations)
+  async getSetupsList(): Promise<{id: string, name: string, active?: boolean}[]> {
+    try {
+      const response = await this.api.get('/setups');
+      return response.data.setups || [];
+    } catch { return []; }
+  }
+
+  async getActiveSetup(): Promise<Setup | null> {
+    try {
+      const response = await this.api.get('/setups/active');
+      return response.data.setup || null;
+    } catch { return null; }
+  }
+
+  async createSetup(id: string, name: string): Promise<void> {
+    await this.api.post('/setups', { id, name });
+  }
+
+  async deleteSetup(id: string): Promise<void> {
+    await this.api.delete(`/setups/${encodeURIComponent(id)}`);
+  }
+
+  async activateSetup(setupId: string): Promise<void> {
+    await this.api.post('/control/setup', { setupId });
+  }
+
+  // Modifiers on Active Setup
+  async saveInstance(instance: FixtureInstance): Promise<void> {
+    await this.api.post('/instances', instance);
+  }
+  async deleteInstance(id: string): Promise<void> {
+    await this.api.delete(`/instances/${encodeURIComponent(id)}`);
+  }
+
+  async saveVirtualGroup(vg: VirtualGroup): Promise<void> {
+    await this.api.post('/virtual-groups', vg);
+  }
+  async deleteVirtualGroup(id: string): Promise<void> {
+    await this.api.delete(`/virtual-groups/${encodeURIComponent(id)}`);
+  }
+
+  async saveScene(scene: ColorScene): Promise<void> {
+    await this.api.post('/scenes', scene);
+  }
   async deleteScene(id: string): Promise<void> {
     await this.api.delete(`/scenes/${encodeURIComponent(id)}`);
   }
 
-  // Ambiances (not yet implemented in firmware)
-  async getAmbiances(): Promise<Ambiance[]> {
-    return [];
+  async saveShow(show: DynamicShow): Promise<void> {
+    await this.api.post('/shows', show);
   }
-
-  async saveAmbiance(_ambiance: Ambiance): Promise<Ambiance> {
-    throw new Error('Not implemented');
-  }
-
-  async deleteAmbiance(_id: string): Promise<void> {
-    throw new Error('Not implemented');
-  }
-
-  // Shows
-  async getShows(): Promise<DynamicShow[]> {
-    try {
-      const response = await this.api.get('/shows');
-      return Array.isArray(response.data) ? response.data : response.data.shows || [];
-    } catch (error) {
-      console.error('Failed to fetch shows:', error);
-      return [];
-    }
-  }
-
-  async saveShow(show: DynamicShow): Promise<DynamicShow> {
-    const response = await this.api.post('/shows', show);
-    return response.data;
-  }
-
   async deleteShow(id: string): Promise<void> {
     await this.api.delete(`/shows/${encodeURIComponent(id)}`);
   }
 
-  // Fixtures
-  async getFixtures(): Promise<DMXFixture[]> {
-    try {
-      const response = await this.api.get('/fixtures');
-      return Array.isArray(response.data) ? response.data : response.data.fixtures || [];
-    } catch (error) {
-      console.error('Failed to fetch fixtures:', error);
-      return [];
-    }
-  }
-
-  async saveFixture(fixture: DMXFixture): Promise<DMXFixture> {
-    const response = await this.api.post('/fixtures', fixture);
-    return response.data;
-  }
-
-  async deleteFixture(id: string): Promise<void> {
-    await this.api.delete(`/fixtures/${encodeURIComponent(id)}`);
-  }
-
   // Control
-  async setColor(fixtureId: string, color: [number, number, number], brightness: number): Promise<void> {
-    await this.api.post('/control/color', { fixtureId, color, brightness });
-  }
-
   async activateScene(sceneId: string): Promise<void> {
     await this.api.post('/control/scene', { sceneId });
   }
@@ -166,9 +163,16 @@ class APIService {
     await this.api.post('/control/sound-stop');
   }
 
+  // DMX and Virtual Group realtime control
   async setDMXChannel(channel: number, value: number): Promise<void> {
-    // Batch changes and send over WebSocket every 50ms
     this.dmxPending.set(channel, value);
+    if (!this.dmxTimer) {
+      this.dmxTimer = setTimeout(() => this.flushDMX(), 50);
+    }
+  }
+
+  async setVirtualGroupValue(groupId: string, value: number): Promise<void> {
+    this.groupPending.set(groupId, value);
     if (!this.dmxTimer) {
       this.dmxTimer = setTimeout(() => this.flushDMX(), 50);
     }
@@ -176,29 +180,37 @@ class APIService {
 
   private flushDMX(): void {
     this.dmxTimer = null;
-    if (this.dmxPending.size === 0) return;
-
-    const batch: Record<string, number> = {};
-    for (const [ch, val] of this.dmxPending) {
-      batch[String(ch)] = val;
-    }
-    this.dmxPending.clear();
+    if (this.dmxPending.size === 0 && this.groupPending.size === 0) return;
 
     if (this.wsReady && this.ws) {
-      // Send all channels in one WebSocket message
-      this.ws.send(JSON.stringify({ dmx: batch }));
+      const batch: Record<string, number> = {};
+      for (const [ch, val] of this.dmxPending) batch[String(ch)] = val;
+      
+      if (Object.keys(batch).length > 0) this.ws.send(JSON.stringify({ dmx: batch }));
+
+      for (const [grp, val] of this.groupPending) {
+         this.ws.send(JSON.stringify({ group: grp, val }));
+      }
     } else {
-      // Fallback to HTTP
-      this.api.post('/control/dmx', batch).catch(() => {});
+      // Fallback
+      if (this.dmxPending.size > 0) {
+        for (const [ch, val] of this.dmxPending) {
+           this.api.post('/control/dmx', { channel: ch, value: val }).catch(() => {});
+        }
+      }
+      if (this.groupPending.size > 0) {
+        for (const [grp, val] of this.groupPending) {
+           this.api.post('/control/group', { groupId: grp, value: val }).catch(() => {});
+        }
+      }
     }
+    
+    this.dmxPending.clear();
+    this.groupPending.clear();
   }
 
   // Audio
-  async getAudio(): Promise<{
-    volume: number; bass: number; mid: number; high: number;
-    peak: number; beat: boolean; mode: number; sensitivity: number;
-    diag: { rawMin: number; rawMax: number; rawRms: number; rawSpan: number };
-  }> {
+  async getAudio(): Promise<any> {
     const response = await this.api.get('/audio');
     return response.data;
   }
@@ -213,8 +225,7 @@ class APIService {
     try {
       const response = await this.api.get('/config');
       return response.data;
-    } catch (error) {
-      console.error('Failed to fetch system config:', error);
+    } catch {
       return {
         wifiSSID: '',
         wifiPassword: '',

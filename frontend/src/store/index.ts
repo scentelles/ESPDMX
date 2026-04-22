@@ -1,10 +1,8 @@
 import { create } from 'zustand';
 import type {
-  ColorScene,
-  Ambiance,
-  DynamicShow,
-  DMXFixture,
   LightingState,
+  FixtureProfile,
+  Setup,
 } from '@/types';
 
 interface AppStore {
@@ -12,18 +10,16 @@ interface AppStore {
   isAuthenticated: boolean;
   setAuthenticated: (value: boolean) => void;
 
-  // Data
-  scenes: ColorScene[];
-  setScenes: (scenes: ColorScene[]) => void;
+  // Catalog
+  profiles: FixtureProfile[];
+  setProfiles: (profiles: FixtureProfile[]) => void;
 
-  ambiances: Ambiance[];
-  setAmbiances: (ambiances: Ambiance[]) => void;
+  // Setups
+  setupsList: {id: string, name: string, active?: boolean}[];
+  setSetupsList: (list: {id: string, name: string, active?: boolean}[]) => void;
 
-  shows: DynamicShow[];
-  setShows: (shows: DynamicShow[]) => void;
-
-  fixtures: DMXFixture[];
-  setFixtures: (fixtures: DMXFixture[]) => void;
+  activeSetup: Setup | null;
+  setActiveSetup: (setup: Setup | null) => void;
 
   // State
   lightingState: LightingState;
@@ -41,17 +37,14 @@ export const useAppStore = create<AppStore>((set) => ({
   isAuthenticated: false,
   setAuthenticated: (value) => set({ isAuthenticated: value }),
 
-  scenes: [],
-  setScenes: (scenes) => set({ scenes }),
+  profiles: [],
+  setProfiles: (profiles) => set({ profiles }),
 
-  ambiances: [],
-  setAmbiances: (ambiances) => set({ ambiances }),
+  setupsList: [],
+  setSetupsList: (setupsList) => set({ setupsList }),
 
-  shows: [],
-  setShows: (shows) => set({ shows }),
-
-  fixtures: [],
-  setFixtures: (fixtures) => set({ fixtures }),
+  activeSetup: null,
+  setActiveSetup: (activeSetup) => set({ activeSetup }),
 
   lightingState: {
     masterBrightness: 100,

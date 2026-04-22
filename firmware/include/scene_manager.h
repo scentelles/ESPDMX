@@ -1,4 +1,4 @@
-// Scene Manager - Handles lighting scenes and shows
+// Scene Manager - Handles lighting configurations, profiles, scenes, and shows
 
 #ifndef SCENE_MANAGER_H
 #define SCENE_MANAGER_H
@@ -6,6 +6,7 @@
 #include <ArduinoJson.h>
 #include <vector>
 #include <map>
+#include "dmx_engine.h"
 
 struct ChannelDef {
   String name;
@@ -20,20 +21,40 @@ struct StrobeChannelCfg {
   uint8_t value;
 };
 
-struct FixtureDef {
+// The Catalog Entry
+struct FixtureProfile {
   String id;
   String name;
   String type;
-  uint16_t dmxAddress;
   uint8_t channelCount;
   std::vector<ChannelDef> channels;
-  bool enabled;
   StrobeChannelCfg strobeChannel;
 };
 
+// Instantiation of a Profile in a Setup
+struct FixtureInstance {
+  String id;
+  String profileId;
+  String name;
+  uint16_t dmxAddress;
+  bool enabled;
+};
+
+// Virtual Group
+struct VirtualGroupAssignment {
+  String instanceId;
+  String channelName;
+};
+
+struct VirtualGroup {
+  String id;
+  String name;
+  std::vector<VirtualGroupAssignment> assignments;
+};
+
 struct FixtureChannelValues {
-  String fixtureId;
-  std::map<String, uint8_t> values;  // channel name -> value
+  String fixtureId; // This is the instanceId
+  std::map<String, uint8_t> values;
 };
 
 struct Scene {
@@ -46,9 +67,9 @@ struct Scene {
 
 struct ShowStep {
   String sceneId;
-  uint32_t duration;       // ms to hold
-  uint32_t transitionTime; // ms to fade
-  bool smoothTransition;   // progressive DMX value interpolation
+  uint32_t duration;
+  uint32_t transitionTime;
+  bool smoothTransition;
 };
 
 struct Show {
@@ -61,53 +82,92 @@ struct Show {
   bool isRunning;
 };
 
+// Represents a full configuration map
+struct SetupDef {
+  String id;
+  String name;
+  std::vector<FixtureInstance> instances;
+  std::vector<VirtualGroup> virtualGroups;
+  std::vector<Scene> scenes;
+  std::vector<Show> shows;
+};
+
+// Basic metadata for the index
+struct SetupMeta {
+  String id;
+  String name;
+};
+
 class SceneManager {
 public:
   SceneManager();
-  void begin();
+  void begin(DMXEngine* dmxEngine);
   
-  // Fixtures
-  std::vector<FixtureDef>& getFixtures();
-  bool saveFixture(const FixtureDef& fixture);
-  bool deleteFixture(const String& id);
-  FixtureDef* getFixture(const String& id);
+  // Profiles
+  std::vector<FixtureProfile>& getProfiles();
+  bool saveProfile(const FixtureProfile& profile);
+  bool deleteProfile(const String& id);
+  FixtureProfile* getProfile(const String& id);
   
-  // Scenes
-  std::vector<Scene>& getScenes();
+  // Setups (Configurations) Management
+  String getSetupsListJSON();
+  bool createSetup(const String& id, const String& name);
+  bool deleteSetup(const String& id);
+  
+  // Active Setup State
+  String getActiveSetupId();
+  bool setActiveSetup(const String& id);
+  SetupDef* getActiveSetup();
+  bool saveActiveSetup();
+
+  // Modifiers on Active Setup
+  bool saveInstance(const FixtureInstance& inst);
+  bool deleteInstance(const String& id);
+  FixtureInstance* getInstance(const String& id);
+
+  bool saveVirtualGroup(const VirtualGroup& vg);
+  bool deleteVirtualGroup(const String& id);
+  VirtualGroup* getVirtualGroup(const String& id);
+
   bool saveScene(const Scene& scene);
   bool deleteScene(const String& id);
   Scene* getScene(const String& id);
   
-  // Shows
-  std::vector<Show>& getShows();
   bool saveShow(const Show& show);
   bool deleteShow(const String& id);
   Show* getShow(const String& id);
+
+  // Runtime Controls
+  void setVirtualGroupValue(const String& groupId, uint8_t value);
+  int resolveDMXAddress(const String& instanceId, const String& channelName);
   
   // JSON serialization
-  String getFixturesJSON();
-  String getScenesJSON();
-  String getShowsJSON();
+  String getProfilesJSON();
+  String getActiveSetupJSON();
   
-  // Persistence
+  // Persistence override trigger
   bool saveAll();
-  bool loadAll();
   
 private:
-  std::vector<FixtureDef> fixtures;
-  std::vector<Scene> scenes;
-  std::vector<Show> shows;
+  DMXEngine* engine;
+  std::vector<FixtureProfile> profiles;
+  std::vector<SetupMeta> setupsMeta;
+  
+  SetupDef activeSetup;
+  String activeSetupId;
   
   void loadDefaults();
-  void loadDefaultFixtures();
-  void loadDefaultScenes();
-  void loadDefaultShows();
-  bool saveFixturesToFile();
-  bool loadFixturesFromFile();
-  bool saveScenesToFile();
-  bool loadScenesFromFile();
-  bool saveShowsToFile();
-  bool loadShowsFromFile();
+  void loadDefaultProfiles();
+  void loadDefaultSetups();
+  
+  bool saveProfilesToFile();
+  bool loadProfilesFromFile();
+  
+  bool saveSetupsIndex();
+  bool loadSetupsIndex();
+  
+  bool loadSetupFromFile(const String& id, SetupDef& setup);
+  bool saveSetupToFile(const SetupDef& setup);
 };
 
 #endif
