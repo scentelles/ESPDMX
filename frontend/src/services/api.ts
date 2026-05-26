@@ -251,6 +251,36 @@ class APIService {
     return response.data;
   }
 
+  // Backups
+  async getBackups(): Promise<{ id: string; filename: string; timestamp: number; size: number; description?: string }[]> {
+    try {
+      const response = await this.api.get('/backups');
+      return response.data.backups || [];
+    } catch {
+      return [];
+    }
+  }
+
+  async createBackup(timestamp: number): Promise<void> {
+    await this.api.post('/backups', { timestamp });
+  }
+
+  async deleteBackup(id: string): Promise<void> {
+    await this.api.delete(`/backups/${encodeURIComponent(id)}`);
+  }
+
+  async updateBackupDescription(id: string, description: string): Promise<void> {
+    await this.api.put('/backup-description', { id, description });
+  }
+
+  async restoreBackup(id: string): Promise<void> {
+    await this.api.post('/restore', { id }, { timeout: 30000 });
+  }
+
+  async uploadBackup(backupData: any): Promise<void> {
+    await this.api.post('/backups/restore-upload', backupData);
+  }
+
   async uploadOTA(file: File, type: 'firmware' | 'spiffs', onProgress: (pct: number) => void): Promise<void> {
     const formData = new FormData();
     formData.append('update', file);

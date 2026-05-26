@@ -383,15 +383,146 @@ app.post('/api/config', (req, res) => {
   res.json(config);
 });
 
+// ============ BACKUP ENDPOINTS ============
+const fs = require('fs');
+const backupsDir = path.join(__dirname, 'backups');
+if (!fs.existsSync(backupsDir)) {
+  fs.mkdirSync(backupsDir);
+}
+
+app.get('/api/backups', (req, res) => {
+  try {
+    const files = fs.readdirSync(backupsDir);
+    const backups = files
+      .filter(f => f.startsWith('bk_') && f.endsWith('.json'))
+      .map(f => {
+        const timestamp = parseInt(f.substring(3, f.length - 5));
+        const stats = fs.statSync(path.join(backupsDir, f));
+        return {
+          id: String(timestamp),
+          filename: f,
+          timestamp: timestamp,
+          size: stats.size
+        };
+      })
+      .sort((a, b) => b.timestamp - a.timestamp);
+    res.json({ backups });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.post('/api/backups', (req, res) => {
+  try {
+    const timestamp = Math.floor(Date.now() / 1000);
+    const filename = `bk_${timestamp}.json`;
+    const backupData = {
+      backupVersion: 1,
+      config: {
+        wifiSSID: "MockWiFi",
+        wifiPassword: "password",
+        adminPin: "1234",
+        dmxBaud: 250000,
+        maxFixtures: 10,
+        updateInterval: 500,
+      },
+      profiles: mockFixtures,
+      setupsList: [
+        { id: 'setup-1', name: 'Default Setup', active: true }
+      ],
+      setupsData: {
+        'setup-1': {
+          id: 'setup-1',
+          name: 'Default Setup',
+          instances: mockFixtures,
+          virtualGroups: [],
+          scenes: mockScenes,
+          shows: mockShows
+        }
+      }
+    };
+    fs.writeFileSync(path.join(backupsDir, filename), JSON.stringify(backupData, null, 2));
+    res.json({ status: 'ok', id: String(timestamp) });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/backups/:id', (req, res) => {
+  const { id } = req.params;
+  const filePath = path.join(backupsDir, `bk_${id}.json`);
+  if (fs.existsSync(filePath)) {
+    res.download(filePath);
+  } else {
+    res.status(404).json({ error: 'Backup not found' });
+  }
+});
+
+app.delete('/api/backups/:id', (req, res) => {
+  const { id } = req.params;
+  const filePath = path.join(backupsDir, `bk_${id}.json`);
+  if (fs.existsSync(filePath)) {
+    fs.unlinkSync(filePath);
+    res.json({ status: 'ok' });
+  } else {
+    res.status(404).json({ error: 'Backup not found' });
+  }
+});
+
+app.post('/api/backups/:id/restore', (req, res) => {
+  const { id } = req.params;
+  const filePath = path.join(backupsDir, `bk_${id}.json`);
+  if (fs.existsSync(filePath)) {
+    try {
+      const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+      if (data.profiles) mockFixtures = data.profiles;
+      if (data.setupsData && data.setupsData['setup-1']) {
+        const s = data.setupsData['setup-1'];
+        if (s.scenes) mockScenes = s.scenes;
+        if (s.shows) mockShows = s.shows;
+      }
+      console.log(`✓ Backup ${id} restored!`);
+      res.json({ status: 'ok' });
+    } catch (err) {
+      res.status(500).json({ error: 'Failed to restore: ' + err.message });
+    }
+  } else {
+    res.status(404).json({ error: 'Backup not found' });
+  }
+});
+
+app.post('/api/backups/restore-upload', (req, res) => {
+  try {
+    const data = req.body;
+    if (data.profiles) mockFixtures = data.profiles;
+    if (data.setupsData && data.setupsData['setup-1']) {
+      const s = data.setupsData['setup-1'];
+      if (s.scenes) mockScenes = s.scenes;
+      if (s.shows) mockShows = s.shows;
+    }
+    console.log(`✓ Uploaded backup restored!`);
+    res.json({ status: 'ok' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to restore uploaded backup: ' + err.message });
+  }
+});
+
 // ============ STATIC FILES & FALLBACK ============
+
+// System reboot (mock)
+app.post('/api/system/reboot', (req, res) => {
+  console.log('✓ System reboot requested (mock)');
+  res.json({ status: 'ok' });
+});
 
 // Serve static files from the React app
 app.use(express.static(path.join(__dirname, 'frontend', 'dist')));
 
 // Fallback to index.html for React Router - handle all non-API routes
 app.use((req, res) => {
-  // If it's not an API route, serve index.html
-  if (!req.path.startsWith('/api')) {
+  if (req.path.startsWith('/api')) {
+    res.status(404).json({ error: 'API route not found: ' + req.method + ' ' + req.path });
+  } else {
     res.sendFile(path.join(__dirname, 'frontend', 'dist', 'index.html'));
   }
 });

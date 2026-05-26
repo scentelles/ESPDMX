@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { LogOut, Sliders, Layers, LayoutGrid, Palette, Play, Settings, Monitor, Mic } from 'lucide-react';
-import { LoadingSpinner, ErrorNotification } from '@/components/ui';
+import { LoadingSpinner } from '@/components/ui';
 import { useAppStore } from '@/store';
 import { apiService } from '@/services/api';
 
@@ -66,8 +66,6 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
 
   return (
     <div className="flex h-screen bg-slate-950 overflow-hidden">
-      <ErrorNotification />
-
       {/* Sidebar sidebar */}
       <div className="w-64 bg-slate-900 border-r border-slate-800 flex flex-col">
         <div className="p-6 border-b border-slate-800">

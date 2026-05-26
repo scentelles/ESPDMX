@@ -39,6 +39,7 @@ struct DisplayStatus {
   int fixtureCount;
   int enabledFixtures;
   // Playback
+  String activeSetupName;
   String activeScene;
   String activeShow;
   bool showRunning;

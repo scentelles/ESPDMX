@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { UserPage } from '@/pages/UserPage';
 import { AdminPage } from '@/pages/AdminPage';
 import { LoginModal } from '@/components/modals';
+import { GlobalNotification } from '@/components/ui';
 import { useAppStore } from '@/store';
 import '@/index.css';
 
@@ -33,6 +34,7 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-950">
+      <GlobalNotification />
       {page === 'user' ? (
         <>
           <UserPage />

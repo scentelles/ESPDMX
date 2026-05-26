@@ -4,12 +4,27 @@ import { Card, Button } from '@/components/ui';
 
 import { apiService } from '@/services/api';
 
+import { useAppStore } from '@/store';
+
 export const ConsoleClassicTab = () => {
+  const store = useAppStore();
   const [page, setPage] = useState(0);
   const [channelsPerPage, setChannelsPerPage] = useState(16); // 8 portrait, 16 landscape
-  const [values, setValues] = useState<number[]>(new Array(512).fill(0));
+  const [values, setValues] = useState<number[]>(() => {
+    if (store.lightingState.dmxOutput && store.lightingState.dmxOutput.length === 512) {
+      return [...store.lightingState.dmxOutput];
+    }
+    return new Array(512).fill(0);
+  });
 
   useEffect(() => {
+    apiService.getLightingState().then(state => {
+      if (state.dmxOutput && state.dmxOutput.length === 512) {
+        setValues(state.dmxOutput);
+        store.setLightingState(state);
+      }
+    }).catch(console.error);
+
     const handleResize = () => {
       setChannelsPerPage(window.innerWidth < 768 ? 8 : 16);
     };
@@ -18,12 +33,17 @@ export const ConsoleClassicTab = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Sync with store lightingState periodically or just use local state + update?
-  // We'll write to apiService.setDMXChannel on change
   const handleChange = (ch: number, val: number) => {
     const newValues = [...values];
     newValues[ch - 1] = val;
     setValues(newValues);
+    
+    if (store.lightingState.dmxOutput) {
+      const newStoreOutput = [...store.lightingState.dmxOutput];
+      newStoreOutput[ch - 1] = val;
+      store.setLightingState({ ...store.lightingState, dmxOutput: newStoreOutput });
+    }
+    
     apiService.setDMXChannel(ch, val);
   };
 
@@ -61,15 +81,15 @@ export const ConsoleClassicTab = () => {
       </div>
 
       <Card className="p-6">
-        <div className={`grid gap-4 ${channelsPerPage === 8 ? 'grid-cols-4 sm:grid-cols-8' : 'grid-cols-8 md:grid-cols-16'}`}>
+        <div className={`grid gap-3 ${channelsPerPage === 8 ? 'grid-cols-4 sm:grid-cols-8' : 'grid-cols-8 md:grid-cols-16'}`}>
           {currentChannels.map(ch => (
              <div key={ch} className="flex flex-col items-center gap-2">
                 <span className="text-xs text-slate-400 font-mono">CH {ch}</span>
-                <div className="h-48 flex items-end justify-center w-8 bg-slate-900 rounded-full py-2 shadow-inner border border-slate-800">
+                <div className="h-64 flex items-end justify-center w-14 bg-slate-900 rounded-full py-3 shadow-inner border border-slate-800">
                    <input
                      {...{ orient: "vertical" } as any}
                      type="range"
-                     className="w-full h-full slider-vertical appearance-none bg-transparent cursor-pointer"
+                     className="w-full h-full slider-classic-dmx appearance-none bg-transparent cursor-pointer"
                      style={{ WebkitAppearance: 'slider-vertical' } as any}
                      min={0}
                      max={255}
@@ -81,7 +101,7 @@ export const ConsoleClassicTab = () => {
                    type="number"
                    min={0}
                    max={255}
-                   className="w-12 text-center bg-slate-800 text-white text-xs py-1 rounded border border-slate-700 font-mono"
+                   className="w-14 text-center bg-slate-800 text-white text-xs py-1 rounded border border-slate-700 font-mono"
                    value={values[ch - 1]}
                    onChange={e => handleChange(ch, parseInt(e.target.value) || 0)}
                 />
@@ -91,14 +111,24 @@ export const ConsoleClassicTab = () => {
       </Card>
       
       <style dangerouslySetInnerHTML={{__html: `
-        input[type=range].slider-vertical::-webkit-slider-thumb {
+        input[type=range].slider-classic-dmx::-webkit-slider-thumb {
           -webkit-appearance: none;
-          height: 16px;
-          width: 24px;
-          border-radius: 4px;
-          background: #a855f7;
+          height: 28px;
+          width: 44px;
+          border-radius: 6px;
+          background: linear-gradient(135deg, #a855f7, #7c3aed);
           cursor: pointer;
-          border: 2px solid #fff;
+          border: 3px solid #fff;
+          box-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
+        }
+        input[type=range].slider-classic-dmx::-moz-range-thumb {
+          height: 28px;
+          width: 44px;
+          border-radius: 6px;
+          background: linear-gradient(135deg, #a855f7, #7c3aed);
+          cursor: pointer;
+          border: 3px solid #fff;
+          box-shadow: 0 0 10px rgba(168, 85, 247, 0.4);
         }
       `}} />
     </div>

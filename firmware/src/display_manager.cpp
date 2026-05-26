@@ -52,7 +52,7 @@ void DisplayManager::showBootLogo() {
   spr.setTextDatum(TL_DATUM);
   spr.setTextFont(4);
   spr.setTextColor(COL_ACCENT, COL_BG);
-  spr.drawString("ESPDMX", 30, 8);
+  spr.drawString("SUDSHOW", 25, 8);
 
   // Subtitles
   spr.setTextFont(1);
@@ -144,7 +144,7 @@ void DisplayManager::showStatus(const DisplayStatus& status) {
   spr.setTextFont(1);
   spr.setTextDatum(TL_DATUM);
   spr.setTextColor(COL_TEXT, COL_BG);
-  spr.drawString(status.ipAddress, 14, 1);
+  spr.drawString(truncate(status.activeSetupName, 18), 14, 1);
   spr.setTextDatum(TR_DATUM);
   spr.setTextColor(COL_DIM, COL_BG);
   spr.drawString(formatUptime(status.uptime), SCREEN_W - 2, 1);

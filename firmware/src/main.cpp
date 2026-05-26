@@ -6,6 +6,7 @@
 #include <SPIFFS.h>
 #include <Update.h>
 #include <ArduinoJson.h>
+#include <esp_task_wdt.h>
 #include "config.h"
 #include "dmx_engine.h"
 #include "config_manager.h"
@@ -74,6 +75,10 @@ void computeSceneDmx(const String& sceneId, uint8_t* buf);
 void updateShowPlayback();
 void handleNotFound(AsyncWebServerRequest* request);
 void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len);
+bool createBackupFile(const String& path);
+bool restoreBackupFile(const String& path);
+
+String pendingRestoreBackupPath = "";
 
 void setup() {
   Serial.begin(115200);
@@ -82,13 +87,14 @@ void setup() {
   esp_register_freertos_idle_hook_for_cpu(idleHook0, 0);
   esp_register_freertos_idle_hook_for_cpu(idleHook1, 1);
   
-  Serial.println("\n\nDMXESP - Professional DMX Lighting Controller");
+  Serial.println("\n\nSUDSHOW - Professional DMX Lighting Controller");
   Serial.println("Initializing...");
   
   displayManager.begin();
   displayManager.showBootLogo();
   delay(500);
   
+  esp_task_wdt_init(30, false); // Increase WDT timeout to 30 seconds for SPIFFS formatting
   if (!SPIFFS.begin(true)) {
     Serial.println("SPIFFS initialization failed!");
     displayManager.update();
@@ -96,6 +102,7 @@ void setup() {
     ESP.restart();
     return;
   }
+  esp_task_wdt_init(5, true); // Restore default WDT
   
   Serial.println("SPIFFS initialized successfully");
   
@@ -139,7 +146,27 @@ void setup() {
   lastCpuCalcTime = millis();
 }
 
+uint32_t rebootTime = 0;
+
 void loop() {
+  if (rebootTime > 0 && millis() > rebootTime) {
+    ESP.restart();
+  }
+
+  if (pendingRestoreBackupPath.length() > 0) {
+    String path = pendingRestoreBackupPath;
+    pendingRestoreBackupPath = "";
+    Serial.println("Restoring backup from " + path);
+    delay(100);
+    if (restoreBackupFile(path)) {
+      if (path == "/bk_uploaded.json") SPIFFS.remove(path);
+      rebootTime = millis() + 1500;
+    } else {
+      if (path == "/bk_uploaded.json") SPIFFS.remove(path);
+      Serial.println("Restore failed!");
+    }
+  }
+
   if (WiFi.getMode() == WIFI_AP) {
     dnsServer.processNextRequest();
   }
@@ -217,6 +244,7 @@ void loop() {
     
     Scene* activeScene = systemState.activeScene.length() > 0 ? sceneManager.getScene(systemState.activeScene) : nullptr;
     Show* activeShow = systemState.activeShow.length() > 0 ? sceneManager.getShow(systemState.activeShow) : nullptr;
+    dStatus.activeSetupName = setup ? setup->name : "Sans nom";
     dStatus.activeScene = activeScene ? activeScene->name : "";
     dStatus.activeShow = activeShow ? activeShow->name : "";
     dStatus.showRunning = showPlayback.running;
@@ -364,6 +392,198 @@ void updateShowPlayback() {
   }
 }
 
+bool createBackupFile(const String& path) {
+  File file = SPIFFS.open(path, "w");
+  if (!file) return false;
+  
+  file.print("{\"backupVersion\":1");
+  
+  // 1. Write config
+  file.print(",\"config\":");
+  if (SPIFFS.exists("/config.json")) {
+    File f = SPIFFS.open("/config.json", "r");
+    if (f) {
+      while (f.available()) {
+        file.write(f.read());
+      }
+      f.close();
+    } else {
+      file.print("null");
+    }
+  } else {
+    file.print("null");
+  }
+  
+  // 2. Write profiles
+  file.print(",\"profiles\":");
+  if (SPIFFS.exists("/profiles.json")) {
+    File f = SPIFFS.open("/profiles.json", "r");
+    if (f) {
+      while (f.available()) {
+        file.write(f.read());
+      }
+      f.close();
+    } else {
+      file.print("[]");
+    }
+  } else {
+    file.print("[]");
+  }
+  
+  // 3. Write setupsList & setupsData
+  file.print(",\"setupsList\":");
+  bool setupsOk = false;
+  std::vector<String> setupIds;
+  if (SPIFFS.exists("/setups.json")) {
+    File f = SPIFFS.open("/setups.json", "r");
+    if (f) {
+      String content = f.readString();
+      file.print(content);
+      f.close();
+      
+      DynamicJsonDocument doc(2048);
+      DeserializationError err = deserializeJson(doc, content);
+      if (!err) {
+        JsonArray arr = doc.as<JsonArray>();
+        for (JsonObject obj : arr) {
+          setupIds.push_back(obj["id"].as<String>());
+        }
+      }
+      setupsOk = true;
+    }
+  }
+  if (!setupsOk) {
+    file.print("[]");
+  }
+  
+  file.print(",\"setupsData\":{");
+  for (size_t i = 0; i < setupIds.size(); i++) {
+    if (i > 0) file.print(",");
+    file.print("\"" + setupIds[i] + "\":");
+    String pathSetup = "/setup_" + setupIds[i] + ".json";
+    if (SPIFFS.exists(pathSetup)) {
+      File sf = SPIFFS.open(pathSetup, "r");
+      if (sf) {
+        while (sf.available()) {
+          file.write(sf.read());
+        }
+        sf.close();
+      } else {
+        file.print("null");
+      }
+    } else {
+      file.print("null");
+    }
+  }
+  file.print("}"); // end setupsData
+  
+  file.print("}"); // end backup JSON
+  file.close();
+  return true;
+}
+
+bool restoreBackupFile(const String& path) {
+  Serial.println("=== RESTORE START === path=" + path);
+  Serial.println("Free heap before restore: " + String(ESP.getFreeHeap()));
+  
+  if (!SPIFFS.exists(path)) {
+    Serial.println("Backup file does not exist: " + path);
+    return false;
+  }
+
+  // 1. Restore config.json
+  Serial.println("Step 1: Restoring config...");
+  {
+    File file = SPIFFS.open(path, "r");
+    if (!file) { Serial.println("Cannot open file"); return false; }
+    StaticJsonDocument<128> filter;
+    filter["config"] = true;
+    DynamicJsonDocument doc(2048);
+    DeserializationError err = deserializeJson(doc, file, DeserializationOption::Filter(filter));
+    file.close();
+    Serial.println("  deserialize result: " + String(err.c_str()));
+    if (!err && doc.containsKey("config")) {
+      File out = SPIFFS.open("/config.json", "w");
+      if (out) { serializeJson(doc["config"], out); out.close(); }
+      Serial.println("  config.json written OK");
+    }
+  }
+  esp_task_wdt_reset();
+  
+  // 2. Restore profiles.json
+  Serial.println("Step 2: Restoring profiles...");
+  {
+    File file = SPIFFS.open(path, "r");
+    if (!file) { Serial.println("Cannot open file"); return false; }
+    StaticJsonDocument<128> filter;
+    filter["profiles"] = true;
+    DynamicJsonDocument doc(16384);
+    DeserializationError err = deserializeJson(doc, file, DeserializationOption::Filter(filter));
+    file.close();
+    Serial.println("  deserialize result: " + String(err.c_str()) + " memUsed=" + String(doc.memoryUsage()));
+    if (!err && doc.containsKey("profiles")) {
+      File out = SPIFFS.open("/profiles.json", "w");
+      if (out) { serializeJson(doc["profiles"], out); out.close(); }
+      Serial.println("  profiles.json written OK");
+    }
+  }
+  esp_task_wdt_reset();
+  
+  // 3. Restore setups.json and extract setupIds
+  Serial.println("Step 3: Restoring setups list...");
+  std::vector<String> setupIds;
+  {
+    File file = SPIFFS.open(path, "r");
+    if (!file) { Serial.println("Cannot open file"); return false; }
+    StaticJsonDocument<128> filter;
+    filter["setupsList"] = true;
+    DynamicJsonDocument doc(4096);
+    DeserializationError err = deserializeJson(doc, file, DeserializationOption::Filter(filter));
+    file.close();
+    Serial.println("  deserialize result: " + String(err.c_str()));
+    if (!err && doc.containsKey("setupsList")) {
+      File out = SPIFFS.open("/setups.json", "w");
+      if (out) { serializeJson(doc["setupsList"], out); out.close(); }
+      JsonArray arr = doc["setupsList"].as<JsonArray>();
+      for (JsonObject obj : arr) {
+        setupIds.push_back(obj["id"].as<String>());
+      }
+      Serial.println("  setups.json written OK, found " + String(setupIds.size()) + " setups");
+    }
+  }
+  esp_task_wdt_reset();
+  
+  // 4. Restore each setup file /setup_<id>.json
+  for (size_t si = 0; si < setupIds.size(); si++) {
+    const String& setupId = setupIds[si];
+    Serial.println("Step 4." + String(si) + ": Restoring setup " + setupId + "...");
+    File file = SPIFFS.open(path, "r");
+    if (!file) { Serial.println("Cannot open file"); continue; }
+    DynamicJsonDocument filter(512);
+    filter["setupsData"][setupId] = true;
+    DynamicJsonDocument doc(16384);
+    DeserializationError err = deserializeJson(doc, file, DeserializationOption::Filter(filter));
+    file.close();
+    Serial.println("  deserialize result: " + String(err.c_str()) + " memUsed=" + String(doc.memoryUsage()));
+    if (!err && doc.containsKey("setupsData") && doc["setupsData"].containsKey(setupId)) {
+      File out = SPIFFS.open("/setup_" + setupId + ".json", "w");
+      if (out) { serializeJson(doc["setupsData"][setupId], out); out.close(); }
+      Serial.println("  setup_" + setupId + ".json written OK");
+    } else {
+      Serial.println("  FAILED to find setupsData." + setupId);
+    }
+    esp_task_wdt_reset();
+  }
+
+  Serial.println("Free heap after restore: " + String(ESP.getFreeHeap()));
+  Serial.println("=== RESTORE COMPLETE - reloading managers ===");
+
+  // Reload managers
+  configManager.begin();
+  sceneManager.begin(&dmxEngine);
+  return true;
+}
+
 void setupWiFi() {
   SystemConfig config = configManager.getConfig();
   WiFi.mode(WIFI_STA);
@@ -395,35 +615,52 @@ void setupServer() {
   server.on("/api/setups", HTTP_GET, [](AsyncWebServerRequest* request) {
     request->send(200, "application/json", sceneManager.getSetupsListJSON());
   });
+
+  server.on("/api/setups/*", HTTP_DELETE, [](AsyncWebServerRequest* request) {
+    String url = request->url();
+    int idx = url.lastIndexOf('/');
+    if (idx != -1) {
+      String id = url.substring(idx + 1);
+      if (sceneManager.deleteSetup(id)) {
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+      } else {
+        request->send(400, "application/json", "{\"error\":\"Cannot delete active setup or not found\"}");
+      }
+    } else {
+      request->send(400, "application/json", "{\"error\":\"Invalid id\"}");
+    }
+  });
   
   server.on("/api/state", HTTP_GET, [](AsyncWebServerRequest* request) {
-    DynamicJsonDocument doc(4096);
-    doc["activeSetupId"] = sceneManager.getActiveSetupId();
-    doc["activeScene"] = systemState.activeScene;
-    doc["activeAmbiance"] = systemState.activeAmbiance;
-    doc["activeShow"] = systemState.activeShow;
-    doc["strobeActive"] = systemState.strobeActive;
-    doc["smokeActive"] = systemState.smokeActive;
-    doc["masterBrightness"] = systemState.masterBrightness;
-    doc["soundMode"] = (int)audioManager.getMode();
-    doc["soundSensitivity"] = audioManager.getSensitivity();
+    // Build JSON manually to avoid huge DynamicJsonDocument for 512 DMX values
+    String json = "{";
+    json += "\"activeSetupId\":\"" + sceneManager.getActiveSetupId() + "\"";
+    json += ",\"activeScene\":\"" + systemState.activeScene + "\"";
+    json += ",\"activeAmbiance\":\"" + systemState.activeAmbiance + "\"";
+    json += ",\"activeShow\":\"" + systemState.activeShow + "\"";
+    json += ",\"strobeActive\":" + String(systemState.strobeActive ? "true" : "false");
+    json += ",\"smokeActive\":" + String(systemState.smokeActive ? "true" : "false");
+    json += ",\"masterBrightness\":" + String(systemState.masterBrightness);
+    json += ",\"soundMode\":" + String((int)audioManager.getMode());
+    json += ",\"soundSensitivity\":" + String(audioManager.getSensitivity());
     
     AudioData ad = audioManager.getData();
-    JsonObject audio = doc.createNestedObject("audio");
-    audio["volume"] = (int)(ad.volume * 100);
-    audio["bass"] = (int)(ad.bass * 100);
-    audio["mid"] = (int)(ad.mid * 100);
-    audio["high"] = (int)(ad.high * 100);
-    audio["beat"] = ad.beatDetected;
+    json += ",\"audio\":{";
+    json += "\"volume\":" + String((int)(ad.volume * 100));
+    json += ",\"bass\":" + String((int)(ad.bass * 100));
+    json += ",\"mid\":" + String((int)(ad.mid * 100));
+    json += ",\"high\":" + String((int)(ad.high * 100));
+    json += ",\"beat\":" + String(ad.beatDetected ? "true" : "false");
+    json += "}";
     
-    JsonArray dmxOutput = doc.createNestedArray("dmxOutput");
+    json += ",\"dmxOutput\":[";
     for (int i = 0; i < 512; i++) {
-      dmxOutput.add(dmxEngine.getChannelValue(i + 1));
+      if (i > 0) json += ',';
+      json += String(dmxEngine.getChannelValue(i + 1));
     }
+    json += "]}";
     
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
+    request->send(200, "application/json", json);
   });
   
   server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest* request) {
@@ -435,6 +672,34 @@ void setupServer() {
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
+  });
+
+  server.on("/api/config", HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      DynamicJsonDocument doc(512);
+      if (deserializeJson(doc, data, len)) return request->send(400, "application/json", "{\"error\":\"Invalid JSON\"}");
+      
+      SystemConfig config = configManager.getConfig();
+      if (doc.containsKey("dmxBaud")) config.dmxBaud = doc["dmxBaud"].as<int>();
+      if (doc.containsKey("maxFixtures")) config.maxFixtures = doc["maxFixtures"].as<int>();
+      if (doc.containsKey("updateInterval")) config.updateInterval = doc["updateInterval"].as<int>();
+      if (doc.containsKey("wifiSSID")) strlcpy(config.wifiSSID, doc["wifiSSID"] | "", sizeof(config.wifiSSID));
+      if (doc.containsKey("wifiPassword")) strlcpy(config.wifiPassword, doc["wifiPassword"] | "", sizeof(config.wifiPassword));
+      if (doc.containsKey("adminPin")) strlcpy(config.adminPin, doc["adminPin"] | "", sizeof(config.adminPin));
+      
+      configManager.setConfig(config);
+      
+      String response;
+      serializeJson(doc, response); // Echo back what was changed
+      request->send(200, "application/json", response);
+    }
+  );
+
+  server.on("/api/system/reboot", HTTP_POST, [](AsyncWebServerRequest* request) {
+    request->send(200, "application/json", "{\"status\":\"ok\"}");
+    delay(500);
+    ESP.restart();
   });
 
   server.on("/api/system/status", HTTP_GET, [](AsyncWebServerRequest* request) {
@@ -459,7 +724,13 @@ void setupServer() {
   }, [](AsyncWebServerRequest *request, String filename, size_t index, uint8_t *data, size_t len, bool final) {
     if (!index) {
       Serial.printf("Update Start: %s\n", filename.c_str());
-      int cmd = (request->hasParam("type") && request->getParam("type")->value() == "spiffs") ? U_SPIFFS : U_FLASH;
+      int cmd = U_FLASH;
+      if (request->hasParam("type") && request->getParam("type")->value() == "spiffs") {
+        cmd = U_SPIFFS;
+      } else if (filename.indexOf("spiffs") != -1) {
+        cmd = U_SPIFFS;
+      }
+      
       if (!Update.begin(UPDATE_SIZE_UNKNOWN, cmd)) {
         Update.printError(Serial);
       }
@@ -558,17 +829,21 @@ void setupServer() {
   server.on("/api/virtual-groups", HTTP_POST,
     [](AsyncWebServerRequest* request) {}, NULL,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-      DynamicJsonDocument doc(2048);
-      if (deserializeJson(doc, data, len)) return request->send(400);
-      VirtualGroup vg;
-      vg.id = doc["id"].as<String>();
-      vg.name = doc["name"].as<String>();
-      JsonArray arr = doc["assignments"];
-      for (JsonObject obj : arr) {
-        vg.assignments.push_back({obj["instanceId"].as<String>(), obj["channelName"].as<String>()});
+      if (index == 0) bodyBuffer = "";
+      bodyBuffer += String((char*)data, len);
+      if (index + len == total) {
+        DynamicJsonDocument doc(2048);
+        if (deserializeJson(doc, bodyBuffer)) return request->send(400);
+        VirtualGroup vg;
+        vg.id = doc["id"].as<String>();
+        vg.name = doc["name"].as<String>();
+        JsonArray arr = doc["assignments"];
+        for (JsonObject obj : arr) {
+          vg.assignments.push_back({obj["instanceId"].as<String>(), obj["channelName"].as<String>()});
+        }
+        sceneManager.saveVirtualGroup(vg);
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
       }
-      sceneManager.saveVirtualGroup(vg);
-      request->send(200, "application/json", "{\"status\":\"ok\"}");
     });
 
   server.on("/api/virtual-groups/*", HTTP_DELETE, [](AsyncWebServerRequest* request) {
@@ -755,7 +1030,250 @@ void setupServer() {
     request->send(200, "application/json", "{\"status\":\"ok\"}");
   });
 
-  server.serveStatic("/", SPIFFS, "/web/").setDefaultFile("index.html");
+  server.on("/api/control/smoke", HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      DynamicJsonDocument doc(256);
+      if (!deserializeJson(doc, data, len) && doc.containsKey("duration")) {
+        systemState.smokeActive = true;
+        smokeEndTime = millis() + doc["duration"].as<uint32_t>() * 1000;
+      }
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+
+  server.on("/api/control/smoke-stop", HTTP_POST, [](AsyncWebServerRequest* request) {
+    systemState.smokeActive = false;
+    request->send(200, "application/json", "{\"status\":\"ok\"}");
+  });
+
+  server.on("/api/control/brightness", HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      DynamicJsonDocument doc(256);
+      if (!deserializeJson(doc, data, len) && doc.containsKey("brightness")) {
+        systemState.masterBrightness = doc["brightness"].as<uint8_t>();
+      }
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+
+  server.on("/api/control/sound", HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      DynamicJsonDocument doc(256);
+      if (!deserializeJson(doc, data, len) && doc.containsKey("mode")) {
+        audioManager.setMode((SoundMode)doc["mode"].as<int>());
+        if (doc.containsKey("sensitivity")) {
+          audioManager.setSensitivity(doc["sensitivity"].as<uint8_t>());
+        }
+      }
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+
+  server.on("/api/control/sound-stop", HTTP_POST, [](AsyncWebServerRequest* request) {
+    audioManager.setMode(SOUND_OFF);
+    request->send(200, "application/json", "{\"status\":\"ok\"}");
+  });
+
+  server.on("/api/control/dmx", HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      DynamicJsonDocument doc(256);
+      if (!deserializeJson(doc, data, len) && doc.containsKey("channel") && doc.containsKey("value")) {
+        dmxEngine.setChannelValue(doc["channel"].as<uint16_t>(), doc["value"].as<uint8_t>());
+      }
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    });
+
+  server.on("/api/audio", HTTP_GET, [](AsyncWebServerRequest* request) {
+    AudioData ad = audioManager.getData();
+    String json = "{";
+    json += "\"volume\":" + String(ad.volume * 100) + ",";
+    json += "\"bass\":" + String(ad.bass * 100) + ",";
+    json += "\"mid\":" + String(ad.mid * 100) + ",";
+    json += "\"high\":" + String(ad.high * 100) + ",";
+    json += "\"beat\":" + String(ad.beatDetected ? "true" : "false");
+    json += "}";
+    request->send(200, "application/json", json);
+  });
+
+  // ── Backup management endpoints ──
+  // IMPORTANT: Specific routes (like /api/backups/*) MUST be registered before base routes (/api/backups)
+  // because ESPAsyncWebServer matches routes in order and /api/backups acts as a prefix matcher.
+
+  server.on("/api/backups/*", HTTP_DELETE, [](AsyncWebServerRequest* request) {
+    String url = request->url();
+    String id = url.substring(url.lastIndexOf('/') + 1);
+    String path = "/bk_" + id + ".json";
+    if (SPIFFS.exists(path)) {
+      SPIFFS.remove(path);
+      
+      // Cleanup metadata
+      if (SPIFFS.exists("/backups_meta.json")) {
+        DynamicJsonDocument metaDoc(4096);
+        File metaFile = SPIFFS.open("/backups_meta.json", "r");
+        if (metaFile) {
+          deserializeJson(metaDoc, metaFile);
+          metaFile.close();
+        }
+        if (metaDoc.containsKey(id)) {
+          metaDoc.remove(id);
+          File out = SPIFFS.open("/backups_meta.json", "w");
+          if (out) {
+            serializeJson(metaDoc, out);
+            out.close();
+          }
+        }
+      }
+      
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    } else {
+      request->send(404, "application/json", "{\"error\":\"Not found\"}");
+    }
+  });
+
+  server.on("/api/backup-description", HTTP_PUT, [](AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      DynamicJsonDocument body(256);
+      if (deserializeJson(body, data, len) || !body.containsKey("id") || !body.containsKey("description")) {
+        request->send(400, "application/json", "{\"error\":\"Missing id or description\"}");
+        return;
+      }
+      String id = body["id"].as<String>();
+      
+      DynamicJsonDocument metaDoc(4096);
+      if (SPIFFS.exists("/backups_meta.json")) {
+        File metaFile = SPIFFS.open("/backups_meta.json", "r");
+        if (metaFile) {
+          deserializeJson(metaDoc, metaFile);
+          metaFile.close();
+        }
+      }
+      
+      metaDoc[id] = body["description"].as<String>();
+      
+      File out = SPIFFS.open("/backups_meta.json", "w");
+      if (out) {
+        serializeJson(metaDoc, out);
+        out.close();
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+      } else {
+        request->send(500, "application/json", "{\"error\":\"Failed to save metadata\"}");
+      }
+    });
+
+  server.on("/api/backups/*", HTTP_GET, [](AsyncWebServerRequest* request) {
+    String url = request->url();
+    String id = url.substring(url.lastIndexOf('/') + 1);
+    String path = "/bk_" + id + ".json";
+    if (SPIFFS.exists(path)) {
+      request->send(SPIFFS, path, "application/json", true);
+    } else {
+      request->send(404, "application/json", "{\"error\":\"Not found\"}");
+    }
+  });
+
+  server.on("/api/backups/restore-upload", HTTP_POST, [](AsyncWebServerRequest *request) {
+  }, NULL, [](AsyncWebServerRequest *request, uint8_t *data, size_t len, size_t index, size_t total) {
+    static File uploadFile;
+    if (index == 0) {
+      uploadFile = SPIFFS.open("/bk_uploaded.json", "w");
+    }
+    if (uploadFile) {
+      uploadFile.write(data, len);
+    }
+    if (index + len == total) {
+      if (uploadFile) {
+        uploadFile.close();
+      }
+      pendingRestoreBackupPath = "/bk_uploaded.json";
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }
+  });
+
+  server.on("/api/backups", HTTP_GET, [](AsyncWebServerRequest* request) {
+    DynamicJsonDocument doc(8192); // Increased to fit descriptions
+    JsonArray backups = doc.createNestedArray("backups");
+    
+    DynamicJsonDocument metaDoc(4096);
+    if (SPIFFS.exists("/backups_meta.json")) {
+      File metaFile = SPIFFS.open("/backups_meta.json", "r");
+      if (metaFile) {
+        deserializeJson(metaDoc, metaFile);
+        metaFile.close();
+      }
+    }
+    
+    File root = SPIFFS.open("/");
+    if (root && root.isDirectory()) {
+      File file = root.openNextFile();
+      while (file) {
+        String name = file.name();
+        String basename = name;
+        if (name.startsWith("/")) {
+          basename = name.substring(1);
+        }
+        
+        if (basename.startsWith("bk_") && basename.endsWith(".json")) {
+          String tsStr = basename.substring(3, basename.length() - 5);
+          uint32_t timestamp = tsStr.toInt();
+          JsonObject obj = backups.createNestedObject();
+          obj["id"] = tsStr;
+          obj["filename"] = basename;
+          obj["timestamp"] = timestamp;
+          obj["size"] = file.size();
+          if (metaDoc.containsKey(tsStr)) {
+            obj["description"] = metaDoc[tsStr].as<String>();
+          }
+        }
+        file = root.openNextFile();
+      }
+    }
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  server.on("/api/backups", HTTP_POST, [](AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      uint32_t timestamp = 0;
+      DynamicJsonDocument doc(256);
+      if (!deserializeJson(doc, data, len) && doc.containsKey("timestamp")) {
+        timestamp = doc["timestamp"].as<uint32_t>();
+      }
+      if (timestamp == 0) {
+        timestamp = millis() / 1000;
+      }
+      
+      String path = "/bk_" + String(timestamp) + ".json";
+      if (createBackupFile(path)) {
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+      } else {
+        request->send(500, "application/json", "{\"error\":\"Failed to create backup\"}");
+      }
+    });
+
+  server.on("/api/restore", HTTP_POST,
+    [](AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      DynamicJsonDocument doc(256);
+      if (deserializeJson(doc, data, len) || !doc.containsKey("id")) {
+        request->send(400, "application/json", "{\"error\":\"Missing id\"}");
+        return;
+      }
+      String id = doc["id"].as<String>();
+      String path = "/bk_" + id + ".json";
+      if (SPIFFS.exists(path)) {
+        pendingRestoreBackupPath = path;
+        Serial.println("Restore scheduled for: " + path);
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+      } else {
+        Serial.println("Backup file not found: " + path);
+        request->send(404, "application/json", "{\"error\":\"Not found\"}");
+      }
+    });
+
+  server.serveStatic("/", SPIFFS, "/web/").setDefaultFile("index.html").setCacheControl("no-cache, no-store, must-revalidate");
   server.onNotFound(handleNotFound);
 }
 

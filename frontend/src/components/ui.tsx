@@ -218,25 +218,41 @@ interface ErrorNotificationProps {
   onClose?: () => void;
 }
 
-export const ErrorNotification: React.FC<ErrorNotificationProps> = ({ onClose }) => {
-  const { error, setError } = useAppStore();
+export const GlobalNotification: React.FC<ErrorNotificationProps> = ({ onClose }) => {
+  const { error, setError, success, setSuccess } = useAppStore();
 
-  if (!error) return null;
+  if (!error && !success) return null;
 
   return (
     <div className="fixed top-4 right-4 z-50 animate-slide-in">
-      <Alert variant="error" className="flex items-center justify-between">
-        <div>{error}</div>
-        <button
-          onClick={() => {
-            setError(null);
-            onClose?.();
-          }}
-          className="text-2xl ml-4"
-        >
-          ×
-        </button>
-      </Alert>
+      {error && (
+        <Alert variant="error" className="flex items-center justify-between mb-2">
+          <div>{error}</div>
+          <button
+            onClick={() => {
+              setError(null);
+              onClose?.();
+            }}
+            className="text-2xl ml-4"
+          >
+            ×
+          </button>
+        </Alert>
+      )}
+      {success && (
+        <Alert variant="success" className="flex items-center justify-between">
+          <div>{success}</div>
+          <button
+            onClick={() => {
+              setSuccess(null);
+              onClose?.();
+            }}
+            className="text-2xl ml-4"
+          >
+            ×
+          </button>
+        </Alert>
+      )}
     </div>
   );
 };

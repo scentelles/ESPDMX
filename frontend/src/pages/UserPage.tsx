@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { Volume2, Mic } from 'lucide-react';
-import { Card, Slider, LoadingSpinner, ErrorNotification } from '@/components/ui';
+import { Card, Slider, LoadingSpinner } from '@/components/ui';
 import {
   EffectButtons,
   SceneGrid,
@@ -20,7 +20,16 @@ export const UserPage: React.FC = () => {
   const smokeHeld = useRef(false);
 
   useEffect(() => {
-    loadUserData();
+    const init = async () => {
+      try {
+        const profiles = await apiService.getProfiles();
+        store.setProfiles(profiles);
+      } catch (e) {
+        console.error('Failed to load profiles', e);
+      }
+      loadUserData();
+    };
+    init();
     const interval = setInterval(loadUserData, 2000);
     return () => clearInterval(interval);
   }, []);
@@ -136,8 +145,6 @@ export const UserPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-900 to-slate-950 p-4 md:p-8">
-      <ErrorNotification />
-
       {/* Header */}
       <div className="max-w-6xl mx-auto mb-8">
         <div className="flex items-center justify-between">

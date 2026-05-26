@@ -31,6 +31,16 @@ interface AppStore {
 
   error: string | null;
   setError: (error: string | null) => void;
+
+  success: string | null;
+  setSuccess: (success: string | null) => void;
+
+  // Virtual Groups local persistence
+  groupValues: Record<string, number>;
+  setGroupValues: (values: Record<string, number>) => void;
+  
+  groupColors: Record<string, string>;
+  setGroupColors: (colors: Record<string, string>) => void;
 }
 
 export const useAppStore = create<AppStore>((set) => ({
@@ -58,5 +68,14 @@ export const useAppStore = create<AppStore>((set) => ({
   setLoading: (loading) => set({ loading }),
 
   error: null,
-  setError: (error) => set({ error }),
+  setError: (error) => set({ error, success: null }),
+
+  success: null,
+  setSuccess: (success) => set({ success, error: null }),
+
+  groupValues: {},
+  setGroupValues: (groupValues) => set({ groupValues }),
+
+  groupColors: {},
+  setGroupColors: (groupColors) => set({ groupColors }),
 }));

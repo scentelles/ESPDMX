@@ -360,7 +360,7 @@ String SceneManager::getProfilesJSON() {
 }
 
 String SceneManager::getActiveSetupJSON() {
-  DynamicJsonDocument doc(3072);
+  DynamicJsonDocument doc(8192);
   JsonObject obj = doc.createNestedObject("setup");
   obj["id"] = activeSetup.id;
   obj["name"] = activeSetup.name;

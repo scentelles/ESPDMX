@@ -5,23 +5,13 @@ import { apiService } from '@/services/api';
 
 export const ConsoleVirtualTab = () => {
   const store = useAppStore();
-  const [values, setValues] = useState<Record<string, number>>({});
-  const [colorValues, setColorValues] = useState<Record<string, string>>({});
   const [activePicker, setActivePicker] = useState<string | null>(null);
 
   const PRESET_COLORS = [
-    '#ffcdd2', '#ef5350', '#f44336', '#d32f2f', // Reds
-    '#ffe0b2', '#ffa726', '#ff9800', '#f57c00', // Oranges
-    '#fff9c4', '#fff176', '#ffeb3b', '#fbc02d', // Yellows
-    '#dcedc8', '#aed581', '#8bc34a', '#689f38', // YellowGreens
-    '#c8e6c9', '#66bb6a', '#4caf50', '#388e3c', // Greens
-    '#b2dfdb', '#4db6ac', '#009688', '#00796b', // Teals
-    '#b3e5fc', '#4fc3f7', '#03a9f4', '#0288d1', // LightBlues
-    '#bbdefb', '#64b5f6', '#2196f3', '#1976d2', // Blues
-    '#c5cae9', '#7986cb', '#3f51b5', '#303f9f', // Indigos
-    '#e1bee7', '#ba68c8', '#9c27b0', '#7b1fa2', // Purples
-    '#f8bbd0', '#f06292', '#e91e63', '#c2185b', // Pinks
-    '#ffffff', '#bdbdbd', '#757575', '#000000'  // Monos
+    '#ff0000', '#ff8c00', '#ffd700', '#ffff00', // Red, Orange, Gold, Yellow
+    '#7fff00', '#00ff00', '#00fa9a', '#00ffff', // Chartreuse, Green, MediumSpringGreen, Cyan
+    '#00bfff', '#0000ff', '#8a2be2', '#ff00ff', // DeepSkyBlue, Blue, BlueViolet, Magenta
+    '#ff1493', '#ff69b4', '#ffffff', '#ffebcd'  // DeepPink, HotPink, White, BlanchedAlmond
   ];
 
   const activeSetup = store.activeSetup;
@@ -30,13 +20,28 @@ export const ConsoleVirtualTab = () => {
     return <Alert variant="warning">Aucune configuration active. Allez dans "Setups" pour en activer une.</Alert>;
   }
 
+  const groupHasRGB = (vg: typeof activeSetup.virtualGroups[0]): boolean => {
+    const instanceIds = Array.from(new Set(vg.assignments.map(a => a.instanceId)));
+    for (const instId of instanceIds) {
+      const inst = activeSetup.instances.find(i => i.id === instId);
+      if (!inst) continue;
+      const profile = store.profiles.find(p => p.id === inst.profileId);
+      if (!profile) continue;
+      const hasR = profile.channels.some(c => /red|rouge|\br\b/i.test(c.name));
+      const hasG = profile.channels.some(c => /green|vert|\bg\b/i.test(c.name));
+      const hasB = profile.channels.some(c => /blue|bleu|\bb\b/i.test(c.name));
+      if (hasR && hasG && hasB) return true;
+    }
+    return false;
+  };
+
   const handleChange = (vgId: string, val: number) => {
-    setValues({ ...values, [vgId]: val });
+    store.setGroupValues({ ...store.groupValues, [vgId]: val });
     apiService.setVirtualGroupValue(vgId, val);
   };
 
   const handleColorChange = (vgId: string, hex: string) => {
-     setColorValues({ ...colorValues, [vgId]: hex });
+     store.setGroupColors({ ...store.groupColors, [vgId]: hex });
      
      if (!activeSetup) return;
      const r = parseInt(hex.substring(1, 3), 16);
@@ -75,44 +80,52 @@ export const ConsoleVirtualTab = () => {
       ) : (
          <Card className="p-6">
            <div className="flex gap-6 overflow-x-auto pb-4">
-             {activeSetup.virtualGroups.map(vg => (
-               <div key={vg.id} className="flex flex-col items-center gap-3 min-w-[80px]">
-                 <div className="font-medium text-white text-sm text-center line-clamp-2 h-10 w-24 leading-snug">
+             {activeSetup.virtualGroups.map(vg => {
+               const hasRGB = groupHasRGB(vg);
+               return (
+               <div key={vg.id} className="flex flex-col items-center gap-3 min-w-[100px] h-full">
+                 <div className="font-medium text-white text-sm text-center line-clamp-2 h-10 w-28 leading-snug">
                     {vg.name}
                  </div>
-                 <div className="mb-2">
-                    <button
-                       onClick={() => setActivePicker(vg.id)}
-                       style={{ backgroundColor: colorValues[vg.id] || '#ffffff' }}
-                       className="w-10 h-10 rounded-full cursor-pointer border-2 border-slate-700 shadow-sm outline-none transition-transform hover:scale-105" 
-                       title="Couleur des projecteurs de ce groupe"
-                    />
-                 </div>
-                 <div className="h-64 flex items-end justify-center w-12 bg-slate-900 rounded-full py-4 shadow-inner border border-slate-800">
+                 
+                 <div className="flex flex-col items-center mt-auto gap-3">
+                   <div className="h-72 flex items-end justify-center w-20 bg-slate-900 rounded-full py-4 shadow-inner border border-slate-800">
+                     <input
+                       {...{ orient: "vertical" } as any}
+                       type="range"
+                       className="w-full h-full slider-virtual-vg appearance-none bg-transparent cursor-pointer"
+                       style={{ WebkitAppearance: 'slider-vertical' } as any}
+                       min={0}
+                       max={255}
+                       value={store.groupValues[vg.id] || 0}
+                       onChange={e => handleChange(vg.id, parseInt(e.target.value) || 0)}
+                     />
+                   </div>
                    <input
-                     {...{ orient: "vertical" } as any}
-                     type="range"
-                     className="w-full h-full slider-vertical appearance-none bg-transparent cursor-pointer"
-                     style={{ WebkitAppearance: 'slider-vertical' } as any}
+                     type="number"
                      min={0}
                      max={255}
-                     value={values[vg.id] || 0}
+                     className="w-16 text-center bg-slate-800 text-white font-mono rounded border border-slate-700 mt-2"
+                     value={store.groupValues[vg.id] || 0}
                      onChange={e => handleChange(vg.id, parseInt(e.target.value) || 0)}
                    />
-                 </div>
-                 <input
-                   type="number"
-                   min={0}
-                   max={255}
-                   className="w-16 text-center bg-slate-800 text-white font-mono rounded border border-slate-700 mt-2"
-                   value={values[vg.id] || 0}
-                   onChange={e => handleChange(vg.id, parseInt(e.target.value) || 0)}
-                 />
-                 <div className="text-xs text-slate-500 mt-1">
-                    {vg.assignments.length} proj.
+                   <div className="text-xs text-slate-500 mt-1 mb-2">
+                      {vg.assignments.length} proj.
+                   </div>
+                   {hasRGB && (
+                   <div className="mt-1">
+                       <button
+                         onClick={() => setActivePicker(vg.id)}
+                         style={{ backgroundColor: store.groupColors[vg.id] || '#ffffff' }}
+                         className="w-8 h-8 rounded-full cursor-pointer border-2 border-slate-700 shadow-sm outline-none transition-transform hover:scale-105" 
+                         title="Couleur des projecteurs de ce groupe"
+                      />
+                   </div>
+                   )}
                  </div>
                </div>
-             ))}
+               );
+             })}
            </div>
          </Card>
       )}
@@ -139,15 +152,24 @@ export const ConsoleVirtualTab = () => {
       )}
 
       <style dangerouslySetInnerHTML={{__html: `
-        input[type=range].slider-vertical::-webkit-slider-thumb {
+        input[type=range].slider-virtual-vg::-webkit-slider-thumb {
           -webkit-appearance: none;
-          height: 20px;
-          width: 32px;
-          border-radius: 4px;
-          background: #38bdf8; /* sky-400 */
+          height: 36px;
+          width: 56px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #38bdf8, #818cf8);
           cursor: pointer;
-          border: 2px solid #fff;
-          box-shadow: 0 0 10px rgba(56, 189, 248, 0.5);
+          border: 3px solid #fff;
+          box-shadow: 0 0 14px rgba(56, 189, 248, 0.5);
+        }
+        input[type=range].slider-virtual-vg::-moz-range-thumb {
+          height: 36px;
+          width: 56px;
+          border-radius: 8px;
+          background: linear-gradient(135deg, #38bdf8, #818cf8);
+          cursor: pointer;
+          border: 3px solid #fff;
+          box-shadow: 0 0 14px rgba(56, 189, 248, 0.5);
         }
       `}} />
     </div>
