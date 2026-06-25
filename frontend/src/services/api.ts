@@ -8,6 +8,9 @@ import type {
   Setup,
   SystemConfig,
   LightingState,
+  PedalButtonConfig,
+  PedalAction,
+  BlePedalActionDef,
 } from '@/types';
 
 class APIService {
@@ -153,14 +156,27 @@ class APIService {
     await this.api.post('/control/brightness', { brightness });
   }
 
-  async setSoundMode(mode: number, sensitivity?: number): Promise<void> {
-    const payload: { mode: number; sensitivity?: number } = { mode };
+  async setSoundMode(mode: number, sensitivity?: number, dynamics?: number): Promise<void> {
+    const payload: { mode: number; sensitivity?: number; dynamics?: number } = { mode };
     if (sensitivity !== undefined) payload.sensitivity = sensitivity;
+    if (dynamics !== undefined) payload.dynamics = dynamics;
     await this.api.post('/control/sound', payload);
   }
 
   async stopSound(): Promise<void> {
     await this.api.post('/control/sound-stop');
+  }
+
+  // Pedal Config
+  async getPedalConfig(): Promise<PedalButtonConfig[]> {
+    try {
+      const response = await this.api.get('/pedal-config');
+      return response.data.pedalConfig || [];
+    } catch { return []; }
+  }
+
+  async savePedalConfig(button: number, action: PedalAction, targetId: string = ''): Promise<void> {
+    await this.api.post('/pedal-config', { button, action, targetId });
   }
 
   // DMX and Virtual Group realtime control
@@ -186,7 +202,18 @@ class APIService {
       const batch: Record<string, number> = {};
       for (const [ch, val] of this.dmxPending) batch[String(ch)] = val;
       
-      if (Object.keys(batch).length > 0) this.ws.send(JSON.stringify({ dmx: batch }));
+      const keys = Object.keys(batch);
+      if (keys.length > 0) {
+        const CHUNK_SIZE = 30;
+        for (let i = 0; i < keys.length; i += CHUNK_SIZE) {
+          const chunkBatch: Record<string, number> = {};
+          for (let j = 0; j < CHUNK_SIZE && i + j < keys.length; j++) {
+            const key = keys[i + j];
+            chunkBatch[key] = batch[key];
+          }
+          this.ws.send(JSON.stringify({ dmx: chunkBatch }));
+        }
+      }
 
       for (const [grp, val] of this.groupPending) {
          this.ws.send(JSON.stringify({ group: grp, val }));
@@ -233,13 +260,28 @@ class APIService {
         dmxBaud: 250000,
         maxFixtures: 10,
         updateInterval: 500,
-      };
+        soundSensitivity: 5,
+        soundDynamics: 0
+      } as SystemConfig;
     }
   }
 
   async saveSystemConfig(config: Partial<SystemConfig>): Promise<SystemConfig> {
     const response = await this.api.post('/config', config);
     return response.data;
+  }
+
+  async getBlePedalConfig(): Promise<BlePedalActionDef[]> {
+    try {
+      const response = await this.api.get('/ble-pedal');
+      return response.data;
+    } catch {
+      return Array(16).fill(null).map((_, i) => ({ ccId: i, action: 'none', param: '' }));
+    }
+  }
+
+  async saveBlePedalConfig(config: BlePedalActionDef[]): Promise<void> {
+    await this.api.post('/ble-pedal', config);
   }
 
   async reboot(): Promise<void> {
@@ -281,13 +323,13 @@ class APIService {
     await this.api.post('/backups/restore-upload', backupData);
   }
 
-  async uploadOTA(file: File, type: 'firmware' | 'spiffs', onProgress: (pct: number) => void): Promise<void> {
+  async uploadOTA(file: File, type: 'firmware' | 'spiffs', onProgress: (pct: number) => void, reboot: boolean = true): Promise<void> {
     const formData = new FormData();
+    formData.append('type', type);
     formData.append('update', file);
-    await this.api.post(`/system/update?type=${type}`, formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
+    
+    await this.api.post(`/system/update?reboot=${reboot}&type=${type}`, formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
       onUploadProgress: (progressEvent) => {
         if (progressEvent.total) {
           const pct = Math.round((progressEvent.loaded * 100) / progressEvent.total);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { LogOut, Sliders, Layers, LayoutGrid, Palette, Play, Settings, Monitor, Mic } from 'lucide-react';
+import { LogOut, Sliders, Layers, LayoutGrid, Palette, Play, Settings, Monitor, Mic, Footprints } from 'lucide-react';
 import { LoadingSpinner } from '@/components/ui';
 import { useAppStore } from '@/store';
 import { apiService } from '@/services/api';
@@ -14,8 +14,11 @@ import { SettingsTab } from './admin/SettingsTab';
 import { ConsoleClassicTab } from './admin/ConsoleClassicTab';
 import { ConsoleVirtualTab } from './admin/ConsoleVirtualTab';
 import { DmxMonitorTab } from './admin/DmxMonitorTab';
+import { PedalConfigTab } from './admin/PedalConfigTab';
+import { BlePedalTab } from './admin/BlePedalTab';
+import { Bluetooth } from 'lucide-react';
 
-type AdminTab = 'catalog' | 'setups' | 'vgroups' | 'scenes' | 'shows' | 'console-classic' | 'console-virtual' | 'dmx-monitor' | 'settings';
+type AdminTab = 'catalog' | 'setups' | 'vgroups' | 'scenes' | 'shows' | 'pedal' | 'ble-pedal' | 'console-classic' | 'console-virtual' | 'dmx-monitor' | 'settings';
 
 interface AdminPageProps {
   onLogout: () => void;
@@ -58,6 +61,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
     { id: 'vgroups', label: 'Groupes Virtuels', icon: <Sliders size={18} /> },
     { id: 'scenes', label: 'Scènes', icon: <Palette size={18} /> },
     { id: 'shows', label: 'Shows', icon: <Play size={18} /> },
+    { id: 'pedal', label: 'Pédalier Analogique', icon: <Footprints size={18} /> },
+    { id: 'ble-pedal', label: 'Pédalier BLE', icon: <Bluetooth size={18} /> },
     { id: 'console-classic', label: 'Console 512', icon: <Monitor size={18} /> },
     { id: 'console-virtual', label: 'Console Virtuelle', icon: <Mic size={18} /> }, // Using mic as placeholder or anything
     { id: 'dmx-monitor', label: 'Moniteur DMX', icon: <LayoutGrid size={18} /> },
@@ -108,6 +113,8 @@ export const AdminPage: React.FC<AdminPageProps> = ({ onLogout }) => {
             {activeTab === 'vgroups' && <VirtualGroupsTab />}
             {activeTab === 'scenes' && <ScenesTab />}
             {activeTab === 'shows' && <ShowsTab />}
+            {activeTab === 'pedal' && <PedalConfigTab />}
+            {activeTab === 'ble-pedal' && <BlePedalTab />}
             {activeTab === 'console-classic' && <ConsoleClassicTab />}
             {activeTab === 'console-virtual' && <ConsoleVirtualTab />}
             {activeTab === 'dmx-monitor' && <DmxMonitorTab />}

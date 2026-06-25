@@ -26,6 +26,16 @@ const FIXTURE_PRESETS: Record<string, ChannelDefinition[]> = {
     { name: 'Green', offset: 4, defaultValue: 0, type: 'color' },
     { name: 'Blue', offset: 5, defaultValue: 0, type: 'color' },
   ],
+  barre_led: [
+    { name: 'Dimmer', offset: 0, defaultValue: 0, type: 'dimmer' },
+    { name: 'Strobe', offset: 1, defaultValue: 0, type: 'other' },
+    ...Array.from({ length: 14 }).flatMap((_, i) => [
+      { name: `Red ${i + 1}`, offset: 2 + i * 4, defaultValue: 0, type: 'color' as ChannelType },
+      { name: `Green ${i + 1}`, offset: 3 + i * 4, defaultValue: 0, type: 'color' as ChannelType },
+      { name: `Blue ${i + 1}`, offset: 4 + i * 4, defaultValue: 0, type: 'color' as ChannelType },
+      { name: `White ${i + 1}`, offset: 5 + i * 4, defaultValue: 0, type: 'color' as ChannelType },
+    ])
+  ],
 };
 
 const CHANNEL_TYPES: { value: ChannelType; label: string }[] = [
@@ -152,6 +162,7 @@ export const CatalogTab = () => {
                 { value: 'rgb', label: 'RGB (3ch)' },
                 { value: 'rgbw', label: 'RGBW (4ch)' },
                 { value: 'moving_head', label: 'Lyre' },
+                { value: 'barre_led', label: 'Barre LED (58ch)' },
               ]}
             />
             <Input

@@ -31,6 +31,7 @@ export const ScenesTab = () => {
       name: 'Nouvelle Scène',
       description: '',
       icon: '🎨',
+      groupId: 1,
       fixtureValues: [],
     });
   };
@@ -120,6 +121,61 @@ export const ScenesTab = () => {
      return fv?.values[channelName] ?? 0;
   };
 
+  const getEffect = (instId: string) => {
+     if (!editingScene) return null;
+     const fv = editingScene.fixtureValues.find(x => x.fixtureId === instId);
+     return fv?.effect;
+  };
+
+  const updateEffect = (instId: string, updates: Partial<import('@/types').FixtureEffect>) => {
+     if (!editingScene) return;
+     setEditingScene({
+        ...editingScene,
+        fixtureValues: editingScene.fixtureValues.map(fv => {
+           if (fv.fixtureId !== instId) return fv;
+           const currentEffect = fv.effect || { type: 'none', speed: 128, colorHex: '#ff0000' };
+           return { ...fv, effect: { ...currentEffect, ...updates } };
+        })
+     });
+  };
+
+  const isVgInScene = (groupId: string) => {
+    return editingScene?.virtualGroupValues?.some(v => v.groupId === groupId);
+  };
+
+  const toggleVgInScene = (groupId: string) => {
+    if (!editingScene) return;
+    const current = editingScene.virtualGroupValues || [];
+    if (isVgInScene(groupId)) {
+      setEditingScene({
+        ...editingScene,
+        virtualGroupValues: current.filter(v => v.groupId !== groupId),
+      });
+    } else {
+      setEditingScene({
+         ...editingScene,
+         virtualGroupValues: [...current, { groupId, dimmer: 255 }]
+      });
+    }
+  };
+
+  const setVgValue = (groupId: string, field: 'dimmer' | 'colorHex', val: any) => {
+     if (!editingScene) return;
+     const current = editingScene.virtualGroupValues || [];
+     setEditingScene({
+        ...editingScene,
+        virtualGroupValues: current.map(v => 
+           v.groupId === groupId ? { ...v, [field]: val } : v
+        )
+     });
+  };
+
+  const getVgValue = (groupId: string) => {
+     if (!editingScene) return null;
+     const current = editingScene.virtualGroupValues || [];
+     return current.find(x => x.groupId === groupId);
+  };
+
   return (
     <div className="space-y-6">
        <div className="flex justify-between items-center">
@@ -137,9 +193,75 @@ export const ScenesTab = () => {
                 <Input label="Icône" value={editingScene.icon} onChange={e => setEditingScene({...editingScene, icon: e.target.value})} />
                 <Input label="Description" value={editingScene.description} onChange={e => setEditingScene({...editingScene, description: e.target.value})} />
              </div>
+             
+             <div className="mb-4">
+                <label className="text-sm font-medium text-slate-300 mb-2 block">Groupe de la Scène</label>
+                <div className="flex gap-4">
+                  <label className="flex items-center gap-2 text-white cursor-pointer">
+                    <input type="radio" name="groupId" value={1} checked={editingScene.groupId === 1 || !editingScene.groupId} onChange={() => setEditingScene({...editingScene, groupId: 1})} className="accent-purple-600" />
+                    Groupe 1
+                  </label>
+                  <label className="flex items-center gap-2 text-white cursor-pointer">
+                    <input type="radio" name="groupId" value={2} checked={editingScene.groupId === 2} onChange={() => setEditingScene({...editingScene, groupId: 2})} className="accent-purple-600" />
+                    Groupe 2
+                  </label>
+                </div>
+             </div>
 
              <div className="mb-4">
-                <label className="text-sm font-medium text-slate-300 mb-2 block">Valeurs DMX (Projecteurs)</label>
+                <label className="text-sm font-medium text-slate-300 mb-2 block">Valeurs DMX (Groupes Virtuels)</label>
+                {activeSetup.virtualGroups && activeSetup.virtualGroups.length === 0 && (
+                   <Alert variant="info">Aucun groupe virtuel n'est configuré.</Alert>
+                )}
+                
+                <div className="space-y-2 mb-6">
+                   {activeSetup.virtualGroups?.map(vg => {
+                      const inScene = !!isVgInScene(vg.id);
+                      const vgVal = getVgValue(vg.id);
+
+                      return (
+                         <div key={vg.id} className="bg-slate-900 rounded-lg border border-slate-700 p-3">
+                            <div className="flex items-center gap-3">
+                               <input type="checkbox" checked={inScene} onChange={() => toggleVgInScene(vg.id)} className="accent-purple-600" />
+                               <span className="font-medium text-white flex-1">{vg.name}</span>
+                            </div>
+
+                            {inScene && (
+                               <div className="mt-3 space-y-3 pl-6 border-l-2 border-slate-700 ml-2">
+                                  <div className="flex items-center gap-3">
+                                     <span className="text-sm text-slate-400 w-24">Couleur (Hex)</span>
+                                     <input 
+                                        type="color" 
+                                        value={vgVal?.colorHex || '#000000'} 
+                                        onChange={(e) => setVgValue(vg.id, 'colorHex', e.target.value)}
+                                        className="w-10 h-8 rounded cursor-pointer bg-slate-800 border-none"
+                                     />
+                                     <button onClick={() => setVgValue(vg.id, 'colorHex', undefined)} className="text-xs text-slate-500 hover:text-white ml-2">Effacer</button>
+                                  </div>
+                                  <div className="flex items-center gap-3">
+                                     <span className="text-sm text-slate-400 w-24">Intensité</span>
+                                     <input
+                                        type="range" min={0} max={255}
+                                        value={vgVal?.dimmer ?? -1}
+                                        onChange={(e) => setVgValue(vg.id, 'dimmer', parseInt(e.target.value))}
+                                        className={`flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-purple-600`}
+                                     />
+                                     <input
+                                        type="number" min={-1} max={255}
+                                        value={vgVal?.dimmer ?? -1}
+                                        onChange={(e) => setVgValue(vg.id, 'dimmer', parseInt(e.target.value)||0)}
+                                        className="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white"
+                                     />
+                                     <button onClick={() => setVgValue(vg.id, 'dimmer', -1)} className="text-xs text-slate-500 hover:text-white ml-2">Non défini (-1)</button>
+                                  </div>
+                               </div>
+                            )}
+                         </div>
+                      );
+                   })}
+                </div>
+
+                <label className="text-sm font-medium text-slate-300 mb-2 block">Valeurs DMX (Projecteurs individuels)</label>
                 {activeSetup.instances.length === 0 && (
                    <Alert variant="warning">Aucun projecteur dans le setup !</Alert>
                 )}
@@ -163,23 +285,89 @@ export const ScenesTab = () => {
 
                             {inScene && expanded && (
                                <div className="p-3 pt-0 space-y-3 border-t border-slate-700">
-                                  {prof.channels.map(ch => (
-                                     <div key={ch.name} className="flex items-center gap-3">
-                                        <span className="text-sm text-slate-400 w-24 truncate">{ch.name}</span>
-                                        <input
-                                           type="range" min={0} max={255}
-                                           value={getChannelValue(inst.id, ch.name)}
-                                           onChange={(e) => setChannelValue(inst.id, ch.name, parseInt(e.target.value))}
-                                           className={`flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer ${channelSliderColor(ch.name)}`}
-                                        />
-                                        <input
-                                           type="number" min={0} max={255}
-                                           value={getChannelValue(inst.id, ch.name)}
-                                           onChange={(e) => setChannelValue(inst.id, ch.name, parseInt(e.target.value)||0)}
-                                           className="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white"
-                                        />
+                                  <div className="space-y-3 mb-4">
+                                     {prof.channels.map(ch => (
+                                        <div key={ch.name} className="flex items-center gap-3">
+                                           <span className="text-sm text-slate-400 w-24 truncate">{ch.name}</span>
+                                           <input
+                                              type="range" min={0} max={255}
+                                              value={getChannelValue(inst.id, ch.name)}
+                                              onChange={(e) => setChannelValue(inst.id, ch.name, parseInt(e.target.value))}
+                                              className={`flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer ${channelSliderColor(ch.name)}`}
+                                           />
+                                           <input
+                                              type="number" min={0} max={255}
+                                              value={getChannelValue(inst.id, ch.name)}
+                                              onChange={(e) => setChannelValue(inst.id, ch.name, parseInt(e.target.value)||0)}
+                                              className="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white"
+                                           />
+                                        </div>
+                                     ))}
+                                  </div>
+                                  <div className="pt-3 border-t border-slate-700">
+                                     <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Effets Dynamiques (FX)</h4>
+                                     <div className="flex flex-col gap-3">
+                                        <div className="flex gap-3 items-end">
+                                           <div className="flex-1">
+                                              <label className="text-xs text-slate-500 mb-1 block">Type d'effet</label>
+                                              <select
+                                                 value={getEffect(inst.id)?.type || 'none'}
+                                                 onChange={(e) => updateEffect(inst.id, { type: e.target.value })}
+                                                 className="w-full bg-slate-800 border border-slate-700 rounded px-2 py-2 text-sm text-white"
+                                              >
+                                                 <option value="none">Aucun effet</option>
+                                                 <option value="chaser">Chaser (Chenillard)</option>
+                                                 <option value="sparkle">Scintillant Aléatoire</option>
+                                                 <option value="up">Montée</option>
+                                                 <option value="sine">Sinus (Couleur Synchro)</option>
+                                                 <option value="sine2">Sinus (Chenillard)</option>
+                                              </select>
+                                           </div>
+                                           {getEffect(inst.id)?.type && getEffect(inst.id)?.type !== 'none' && (
+                                              <div className="w-16 flex flex-col">
+                                                 <label className="text-xs text-slate-500 mb-1">Couleur</label>
+                                                 <input 
+                                                    type="color" 
+                                                    value={getEffect(inst.id)?.colorHex || '#ff0000'} 
+                                                    onChange={(e) => updateEffect(inst.id, { colorHex: e.target.value })}
+                                                    className="w-full h-[36px] rounded cursor-pointer bg-slate-800 border-none"
+                                                 />
+                                              </div>
+                                           )}
+                                        </div>
+                                        {getEffect(inst.id)?.type && getEffect(inst.id)?.type !== 'none' && (
+                                           <div className="flex flex-col gap-2">
+                                              <div className="flex items-center gap-3">
+                                                 <span className="text-sm text-slate-400 w-24 truncate">Vitesse</span>
+                                                 <input
+                                                    type="range" min={1} max={100}
+                                                    value={getEffect(inst.id)?.speed ?? 50}
+                                                    onChange={(e) => updateEffect(inst.id, { speed: parseInt(e.target.value)||1 })}
+                                                    className="flex-1 h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-yellow-500"
+                                                 />
+                                                 <input
+                                                    type="number" min={1} max={100}
+                                                    value={getEffect(inst.id)?.speed ?? 50}
+                                                    onChange={(e) => updateEffect(inst.id, { speed: parseInt(e.target.value)||1 })}
+                                                    className="w-16 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-sm text-white"
+                                                 />
+                                              </div>
+                                              {['chaser', 'up', 'sine2'].includes(getEffect(inst.id)?.type || '') && (
+                                                 <div className="flex items-center gap-2 pl-27">
+                                                    <input 
+                                                       type="checkbox" 
+                                                       id={`reverse-${inst.id}`}
+                                                       checked={getEffect(inst.id)?.reverse || false}
+                                                       onChange={(e) => updateEffect(inst.id, { reverse: e.target.checked })}
+                                                       className="accent-purple-600 cursor-pointer"
+                                                    />
+                                                    <label htmlFor={`reverse-${inst.id}`} className="text-sm text-slate-400 cursor-pointer">Sens inverse (Reverse)</label>
+                                                 </div>
+                                              )}
+                                           </div>
+                                        )}
                                      </div>
-                                  ))}
+                                  </div>
                                </div>
                             )}
                          </div>
@@ -202,34 +390,78 @@ export const ScenesTab = () => {
           </Card>
        )}
 
-       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {activeSetup.scenes.map(s => (
-             <Card key={s.id}>
-                <div className="flex justify-between items-start mb-2">
-                   <div className="flex items-center gap-2">
-                      <span className="text-2xl">{s.icon}</span>
-                      <h3 className="text-xl font-bold text-white">{s.name}</h3>
-                   </div>
-                   <div className="flex gap-2">
-                      <button onClick={() => testScene(s.id)} className="text-green-400 hover:text-green-300">
-                         <Play size={20} />
-                      </button>
-                      <button onClick={() => setEditingScene(s)} className="text-slate-400 hover:text-white">
-                         <Edit2 size={20} />
-                      </button>
-                      <button onClick={() => deleteScene(s.id)} className="text-red-400 hover:text-red-300">
-                         <Trash2 size={20} />
-                      </button>
-                   </div>
-                </div>
-                <p className="text-sm text-slate-400">{s.description || 'Appuyez sur play pour tester.'}</p>
-             </Card>
-          ))}
-          {activeSetup.scenes.length === 0 && (
-             <div className="col-span-full p-8 text-center bg-slate-800/50 rounded-lg text-slate-400">
-                Aucune scène. Créez-en une pour l'utiliser dans un show !
-             </div>
-          )}
+       <div className="space-y-8">
+         {/* Groupe 1 */}
+         <div>
+            <h3 className="text-xl font-bold text-white mb-4 border-b border-slate-700 pb-2">Groupe 1 (Tâches de fond)</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+               {activeSetup.scenes.filter(s => s.groupId === 1 || !s.groupId).map(s => (
+                  <Card key={s.id}>
+                     <div className="flex justify-between items-start mb-2">
+                         <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                               <span className="text-2xl">{s.icon}</span>
+                               <h3 className="text-xl font-bold text-white">{s.name}</h3>
+                            </div>
+                         </div>
+                        <div className="flex gap-2">
+                           <button onClick={() => testScene(s.id)} className="text-green-400 hover:text-green-300">
+                              <Play size={20} />
+                           </button>
+                           <button onClick={() => setEditingScene(s)} className="text-slate-400 hover:text-white">
+                              <Edit2 size={20} />
+                           </button>
+                           <button onClick={() => deleteScene(s.id)} className="text-red-400 hover:text-red-300">
+                              <Trash2 size={20} />
+                           </button>
+                        </div>
+                     </div>
+                     <p className="text-sm text-slate-400">{s.description || 'Appuyez sur play pour tester.'}</p>
+                  </Card>
+               ))}
+               {activeSetup.scenes.filter(s => s.groupId === 1 || !s.groupId).length === 0 && (
+                  <div className="col-span-full p-8 text-center bg-slate-800/50 rounded-lg text-slate-400">
+                     Aucune scène dans le Groupe 1.
+                  </div>
+               )}
+            </div>
+         </div>
+
+         {/* Groupe 2 */}
+         <div>
+            <h3 className="text-xl font-bold text-white mb-4 border-b border-slate-700 pb-2">Groupe 2 (Prioritaires)</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+               {activeSetup.scenes.filter(s => s.groupId === 2).map(s => (
+                  <Card key={s.id}>
+                     <div className="flex justify-between items-start mb-2">
+                         <div className="flex flex-col">
+                            <div className="flex items-center gap-2">
+                               <span className="text-2xl">{s.icon}</span>
+                               <h3 className="text-xl font-bold text-white">{s.name}</h3>
+                            </div>
+                         </div>
+                        <div className="flex gap-2">
+                           <button onClick={() => testScene(s.id)} className="text-green-400 hover:text-green-300">
+                              <Play size={20} />
+                           </button>
+                           <button onClick={() => setEditingScene(s)} className="text-slate-400 hover:text-white">
+                              <Edit2 size={20} />
+                           </button>
+                           <button onClick={() => deleteScene(s.id)} className="text-red-400 hover:text-red-300">
+                              <Trash2 size={20} />
+                           </button>
+                        </div>
+                     </div>
+                     <p className="text-sm text-slate-400">{s.description || 'Appuyez sur play pour tester.'}</p>
+                  </Card>
+               ))}
+               {activeSetup.scenes.filter(s => s.groupId === 2).length === 0 && (
+                  <div className="col-span-full p-8 text-center bg-slate-800/50 rounded-lg text-slate-400">
+                     Aucune scène dans le Groupe 2.
+                  </div>
+               )}
+            </div>
+         </div>
        </div>
     </div>
   );

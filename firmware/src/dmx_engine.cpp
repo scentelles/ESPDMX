@@ -13,6 +13,9 @@ DMXEngine::DMXEngine() {
   strobeState = false;
   dmxTaskHandle = NULL;
   memset(dmxData, 0, sizeof(dmxData));
+  memset(virtualConsoleData, 0, sizeof(virtualConsoleData));
+  memset(overrideData, 0, sizeof(overrideData));
+  memset(overrideActive, 0, sizeof(overrideActive));
 }
 
 void DMXEngine::begin() {
@@ -38,13 +41,16 @@ void DMXEngine::begin() {
 // FreeRTOS task: continuously sends DMX frames (~44Hz)
 void DMXEngine::dmxTask(void* param) {
   DMXEngine* engine = static_cast<DMXEngine*>(param);
+  uint8_t outputData[DMX_PACKET_SIZE];
   
   for (;;) {
-    // Strobe is now handled per-fixture via strobe channel values
-    // set in the HTTP handler — no blanking needed here
+    // Merge base data with overrides
+    for (int i = 0; i < DMX_PACKET_SIZE; i++) {
+      outputData[i] = engine->overrideActive[i] ? engine->overrideData[i] : engine->dmxData[i];
+    }
     
     // Write and send DMX frame
-    dmx_write(DMX_PORT, engine->dmxData, DMX_PACKET_SIZE);
+    dmx_write(DMX_PORT, outputData, DMX_PACKET_SIZE);
     dmx_send_num(DMX_PORT, DMX_PACKET_SIZE);
     // Block THIS task (not the main loop) until frame is sent
     dmx_wait_sent(DMX_PORT, DMX_TIMEOUT_TICK);
@@ -56,6 +62,30 @@ void DMXEngine::setChannelValue(uint16_t channel, uint8_t value) {
     // dmxData[0] = start code (always 0), channels are 1-indexed in the packet
     dmxData[channel] = value;
   }
+}
+
+void DMXEngine::setVirtualConsoleValue(uint16_t channel, uint8_t value) {
+  if (channel >= 1 && channel <= 512) {
+    virtualConsoleData[channel] = value;
+    dmxData[channel] = value;
+  }
+}
+
+void DMXEngine::restoreVirtualConsole() {
+  for (int i = 1; i <= 512; i++) {
+    dmxData[i] = virtualConsoleData[i];
+  }
+}
+
+void DMXEngine::setChannelOverride(uint16_t channel, uint8_t value) {
+  if (channel >= 1 && channel <= 512) {
+    overrideData[channel] = value;
+    overrideActive[channel] = true;
+  }
+}
+
+void DMXEngine::clearAllOverrides() {
+  memset(overrideActive, 0, sizeof(overrideActive));
 }
 
 void DMXEngine::setFixtureValues(uint16_t fixtureId, const uint8_t* values, uint8_t count) {

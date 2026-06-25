@@ -53,9 +53,48 @@ export const UserPage: React.FC = () => {
     }
   };
 
+  const reapplyVirtualConsole = () => {
+    if (!store.activeSetup) return;
+    for (const vg of store.activeSetup.virtualGroups) {
+      const dimmerVal = store.groupValues[vg.id];
+      if (dimmerVal !== undefined) {
+        apiService.setVirtualGroupValue(vg.id, dimmerVal);
+      }
+      
+      const hex = store.groupColors[vg.id];
+      if (hex) {
+        const r = parseInt(hex.substring(1, 3), 16);
+        const g = parseInt(hex.substring(3, 5), 16);
+        const b = parseInt(hex.substring(5, 7), 16);
+        const instanceIds = Array.from(new Set(vg.assignments.map(a => a.instanceId)));
+        
+        for (const instId of instanceIds) {
+          const inst = store.activeSetup.instances.find(i => i.id === instId);
+          if (!inst) continue;
+          const profile = store.profiles.find(p => p.id === inst.profileId);
+          if (!profile) continue;
+          
+          const chRs = profile.channels.filter(c => /red|rouge|\br\b/i.test(c.name)).sort((a,b) => a.offset - b.offset);
+          const chGs = profile.channels.filter(c => /green|vert|\bg\b/i.test(c.name)).sort((a,b) => a.offset - b.offset);
+          const chBs = profile.channels.filter(c => /blue|bleu|\bb\b/i.test(c.name)).sort((a,b) => a.offset - b.offset);
+          
+          for (let idx = 0; idx < Math.max(chRs.length, chGs.length, chBs.length); idx++) {
+            if (chRs[idx]) apiService.setDMXChannel(inst.dmxAddress + chRs[idx].offset, r);
+            if (chGs[idx]) apiService.setDMXChannel(inst.dmxAddress + chGs[idx].offset, g);
+            if (chBs[idx]) apiService.setDMXChannel(inst.dmxAddress + chBs[idx].offset, b);
+          }
+        }
+      }
+    }
+  };
+
   const handleSceneSelect = async (sceneId: string) => {
     try {
+      const isDeactivating = store.lightingState.activeScene === sceneId || store.lightingState.activeSceneG2 === sceneId;
       await apiService.activateScene(sceneId);
+      if (isDeactivating) {
+        setTimeout(reapplyVirtualConsole, 50);
+      }
       await loadUserData();
     } catch (error) {
       store.setError('Erreur d\'activation de la scène');
@@ -64,7 +103,11 @@ export const UserPage: React.FC = () => {
 
   const handleShowStart = async (showId: string) => {
     try {
+      const isDeactivating = store.lightingState.activeShow === showId;
       await apiService.startShow(showId);
+      if (isDeactivating) {
+        setTimeout(reapplyVirtualConsole, 50);
+      }
       await loadUserData();
     } catch (error) {
       store.setError('Erreur de démarrage du show');
@@ -130,8 +173,15 @@ export const UserPage: React.FC = () => {
 
   const handleSoundSensitivity = useCallback(async (sens: number) => {
     try {
-      await apiService.setSoundMode(store.lightingState.soundMode ?? 0, sens);
+      await apiService.setSoundMode(store.lightingState.soundMode ?? 0, sens, store.lightingState.soundDynamics ?? 0);
       store.setLightingState({ ...store.lightingState, soundSensitivity: sens });
+    } catch { /* ignore */ }
+  }, [store.lightingState]);
+
+  const handleSoundDynamics = useCallback(async (dyn: number) => {
+    try {
+      await apiService.setSoundMode(store.lightingState.soundMode ?? 0, store.lightingState.soundSensitivity ?? 5, dyn);
+      store.setLightingState({ ...store.lightingState, soundDynamics: dyn });
     } catch { /* ignore */ }
   }, [store.lightingState]);
 
@@ -152,7 +202,15 @@ export const UserPage: React.FC = () => {
             <h1 className="text-4xl md:text-5xl font-bold text-white mb-2">✨ SUD SHOW CONTROL</h1>
             <p className="text-slate-400">Créez l'ambiance parfaite pour votre événement</p>
           </div>
-          <ConnectionIndicator connected={connected} />
+          <div className="flex flex-col items-end gap-2">
+            <ConnectionIndicator connected={connected} label={connected ? 'ESP32 Connecté' : 'ESP32 Déconnecté'} />
+            {connected && (
+              <ConnectionIndicator 
+                connected={store.lightingState.pedalConnected ?? false} 
+                label={store.lightingState.pedalConnected ? 'Pédalier Connecté' : 'Pédalier Déconnecté'} 
+              />
+            )}
+          </div>
         </div>
       </div>
 
@@ -196,7 +254,7 @@ export const UserPage: React.FC = () => {
             <SceneGrid
               scenes={store.activeSetup.scenes}
               onSceneSelect={handleSceneSelect}
-              activeSceneId={store.lightingState.activeScene}
+              activeSceneIds={[store.lightingState.activeScene, store.lightingState.activeSceneG2].filter(Boolean) as string[]}
             />
           </Card>
         )}
@@ -226,9 +284,11 @@ export const UserPage: React.FC = () => {
           <SoundPanel
             soundMode={store.lightingState.soundMode ?? 0}
             sensitivity={store.lightingState.soundSensitivity ?? 5}
+            dynamics={store.lightingState.soundDynamics ?? 0}
             audio={store.lightingState.audio}
             onModeChange={handleSoundModeChange}
             onSensitivityChange={handleSoundSensitivity}
+            onDynamicsChange={handleSoundDynamics}
           />
         </Card>
       </div>

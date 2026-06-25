@@ -59,13 +59,15 @@ export const ConsoleVirtualTab = () => {
        const profile = store.profiles.find(p => p.id === inst.profileId);
        if (!profile) continue;
 
-       const chR = profile.channels.find(c => /red|rouge|\br\b/i.test(c.name));
-       const chG = profile.channels.find(c => /green|vert|\bg\b/i.test(c.name));
-       const chB = profile.channels.find(c => /blue|bleu|\bb\b/i.test(c.name));
+       const chRs = profile.channels.filter(c => /red|rouge|\br\b/i.test(c.name)).sort((a,b) => a.offset - b.offset);
+       const chGs = profile.channels.filter(c => /green|vert|\bg\b/i.test(c.name)).sort((a,b) => a.offset - b.offset);
+       const chBs = profile.channels.filter(c => /blue|bleu|\bb\b/i.test(c.name)).sort((a,b) => a.offset - b.offset);
 
-       if (chR) apiService.setDMXChannel(inst.dmxAddress + chR.offset, r);
-       if (chG) apiService.setDMXChannel(inst.dmxAddress + chG.offset, g);
-       if (chB) apiService.setDMXChannel(inst.dmxAddress + chB.offset, b);
+       for (let idx = 0; idx < Math.max(chRs.length, chGs.length, chBs.length); idx++) {
+         if (chRs[idx]) apiService.setDMXChannel(inst.dmxAddress + chRs[idx].offset, r);
+         if (chGs[idx]) apiService.setDMXChannel(inst.dmxAddress + chGs[idx].offset, g);
+         if (chBs[idx]) apiService.setDMXChannel(inst.dmxAddress + chBs[idx].offset, b);
+       }
      }
   };
 

@@ -52,9 +52,23 @@ struct VirtualGroup {
   std::vector<VirtualGroupAssignment> assignments;
 };
 
+struct FixtureEffect {
+  String type;      // "none", "chaser", "sparkle", "up", "sine", "sine2"
+  uint8_t speed;    // 1-100
+  String colorHex;  // "#ff0000" etc.
+  bool reverse;
+};
+
 struct FixtureChannelValues {
   String fixtureId; // This is the instanceId
   std::map<String, uint8_t> values;
+  FixtureEffect effect;
+};
+
+struct VirtualGroupSceneValue {
+  String groupId;
+  String colorHex;
+  int dimmer = -1;
 };
 
 struct Scene {
@@ -62,7 +76,9 @@ struct Scene {
   String name;
   String description;
   String icon;
+  int groupId = 1; // 1 or 2
   std::vector<FixtureChannelValues> fixtureValues;
+  std::vector<VirtualGroupSceneValue> virtualGroupValues;
 };
 
 struct ShowStep {
@@ -82,6 +98,12 @@ struct Show {
   bool isRunning;
 };
 
+// Pedal button configuration
+struct PedalButtonConfig {
+  String action;    // "none", "smoke", "strobe", "scene", "show"
+  String targetId;  // sceneId or showId (when action is "scene" or "show")
+};
+
 // Represents a full configuration map
 struct SetupDef {
   String id;
@@ -90,6 +112,8 @@ struct SetupDef {
   std::vector<VirtualGroup> virtualGroups;
   std::vector<Scene> scenes;
   std::vector<Show> shows;
+  PedalButtonConfig pedalButtons[3]; // 3 configurable pedal buttons
+  PedalButtonConfig blePedalButtons[16]; // 16 configurable BLE pedal buttons
 };
 
 // Basic metadata for the index
@@ -136,6 +160,12 @@ public:
   bool saveShow(const Show& show);
   bool deleteShow(const String& id);
   Show* getShow(const String& id);
+
+  // Pedal config (per setup)
+  String getPedalConfigJSON();
+  bool savePedalConfig(int button, const String& action, const String& targetId);
+  String getBlePedalConfigJSON();
+  bool saveBlePedalConfig(int button, const String& action, const String& targetId, bool autoSave = true);
 
   // Runtime Controls
   void setVirtualGroupValue(const String& groupId, uint8_t value);

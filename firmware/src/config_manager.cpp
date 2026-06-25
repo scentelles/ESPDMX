@@ -25,6 +25,8 @@ void ConfigManager::loadDefaults() {
   config.dmxBaud = 250000;
   config.maxFixtures = MAX_FIXTURES;
   config.updateInterval = UPDATE_INTERVAL;
+  config.soundSensitivity = 5;
+  config.soundDynamics = 0;
 }
 
 bool ConfigManager::loadConfig() {
@@ -53,6 +55,8 @@ bool ConfigManager::saveConfig() {
   doc["dmxBaud"] = config.dmxBaud;
   doc["maxFixtures"] = config.maxFixtures;
   doc["updateInterval"] = config.updateInterval;
+  doc["soundSensitivity"] = config.soundSensitivity;
+  doc["soundDynamics"] = config.soundDynamics;
   
   File file = SPIFFS.open("/config.json", "w");
   if (!file) {
@@ -82,6 +86,8 @@ String ConfigManager::getJSON() {
   doc["dmxBaud"] = config.dmxBaud;
   doc["maxFixtures"] = config.maxFixtures;
   doc["updateInterval"] = config.updateInterval;
+  doc["soundSensitivity"] = config.soundSensitivity;
+  doc["soundDynamics"] = config.soundDynamics;
   
   String result;
   serializeJson(doc, result);
@@ -102,6 +108,8 @@ bool ConfigManager::loadFromJSON(const char* json) {
   config.dmxBaud = doc["dmxBaud"] | 250000;
   config.maxFixtures = doc["maxFixtures"] | MAX_FIXTURES;
   config.updateInterval = doc["updateInterval"] | UPDATE_INTERVAL;
+  config.soundSensitivity = doc["soundSensitivity"] | 5;
+  config.soundDynamics = doc["soundDynamics"] | 0;
   
   return true;
 }

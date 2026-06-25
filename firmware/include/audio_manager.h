@@ -24,6 +24,7 @@ struct AudioData {
   bool beatDetected;   // true on bass transient
   float peak;          // 0.0 - 1.0 peak level
   uint8_t sensitivity; // 1-10
+  uint8_t dynamics;    // 0-100 (compression)
 };
 
 class AudioManager {
@@ -45,6 +46,10 @@ public:
   // Sensitivity (1-10)
   void setSensitivity(uint8_t sens);
   uint8_t getSensitivity() const { return audioData.sensitivity; }
+
+  // Dynamics / Compression (0-100)
+  void setDynamics(uint8_t dyn);
+  uint8_t getDynamics() const { return audioData.dynamics; }
 
   // Get DMX RGB values for current audio
   void getSoundColor(uint8_t& r, uint8_t& g, uint8_t& b);

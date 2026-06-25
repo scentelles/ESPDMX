@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Save, AlertTriangle, Download, Upload, Trash2, Database, RefreshCw, Edit2, Check, X } from 'lucide-react';
+import { Save, AlertTriangle, Download, Upload, Trash2, Database, RefreshCw, Edit2, Check, X, Mic, MicOff } from 'lucide-react';
 import { Button, Card, Input } from '@/components/ui';
 import { useAppStore } from '@/store';
 import { apiService } from '@/services/api';
@@ -11,6 +11,7 @@ export const SettingsTab = () => {
   const [otaProgress, setOtaProgress] = useState<number>(-1);
   const [otaStatus, setOtaStatus] = useState<string>('');
   
+
   const [backups, setBackups] = useState<{ id: string; filename: string; timestamp: number; size: number; description?: string }[]>([]);
   const [editingDescId, setEditingDescId] = useState<string | null>(null);
   const [descInputValue, setDescInputValue] = useState("");
@@ -67,7 +68,7 @@ export const SettingsTab = () => {
     setOtaProgress(0);
     setOtaStatus('Téléversement...');
     try {
-      await apiService.uploadOTA(file, type, (pct) => setOtaProgress(pct));
+      await apiService.uploadOTA(file, type, (pct) => setOtaProgress(pct), true);
       setOtaStatus('Succès ! Redémarrage en cours...');
       setTimeout(() => window.location.reload(), 4000);
     } catch (e: any) {
@@ -75,6 +76,8 @@ export const SettingsTab = () => {
       setOtaProgress(-1);
     }
   };
+
+
 
   const handleSaveDescription = async (id: string) => {
     try {
@@ -217,6 +220,52 @@ export const SettingsTab = () => {
             value={config.updateInterval ?? 40} 
             onChange={e => setConfig({...config, updateInterval: parseInt(e.target.value) || 40})} 
           />
+        </div>
+      </Card>
+
+      <Card>
+        <h3 className="text-lg font-bold text-white mb-4">Réglages Audio par Défaut</h3>
+        <p className="text-sm text-slate-400 mb-4">Ces valeurs seront appliquées au démarrage du contrôleur. L'utilisateur peut les modifier temporairement dans son interface.</p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
+           <div className="flex flex-col gap-1">
+             <label className="text-xs font-semibold text-slate-400">Sensibilité (Gain)</label>
+             <div className="flex items-center gap-3 bg-slate-800/50 p-2 rounded-lg">
+               <MicOff size={16} className="text-slate-500" />
+               <input
+                 type="range"
+                 min={1}
+                 max={10}
+                 value={config.soundSensitivity ?? 5}
+                 onChange={e => setConfig({...config, soundSensitivity: parseInt(e.target.value)})}
+                 className="flex-1 h-2 rounded-lg appearance-none cursor-pointer bg-slate-700
+                            [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4
+                            [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
+                            [&::-webkit-slider-thumb]:bg-cyan-500"
+               />
+               <Mic size={16} className="text-cyan-400" />
+               <span className="text-xs text-slate-400 w-6 text-right">{config.soundSensitivity ?? 5}</span>
+             </div>
+           </div>
+           
+           <div className="flex flex-col gap-1">
+             <label className="text-xs font-semibold text-slate-400">Dynamique (Compression)</label>
+             <div className="flex items-center gap-3 bg-slate-800/50 p-2 rounded-lg">
+               <span className="text-xs text-slate-500">Min</span>
+               <input
+                 type="range"
+                 min={0}
+                 max={100}
+                 value={config.soundDynamics ?? 0}
+                 onChange={e => setConfig({...config, soundDynamics: parseInt(e.target.value)})}
+                 className="flex-1 h-2 rounded-lg appearance-none cursor-pointer bg-slate-700
+                            [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4
+                            [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:rounded-full
+                            [&::-webkit-slider-thumb]:bg-purple-500"
+               />
+               <span className="text-xs text-purple-400">Max</span>
+               <span className="text-xs text-slate-400 w-8 text-right">{config.soundDynamics ?? 0}%</span>
+             </div>
+           </div>
         </div>
       </Card>
 
@@ -415,6 +464,7 @@ export const SettingsTab = () => {
               className="text-sm text-slate-300 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100 cursor-pointer"
             />
           </div>
+
         </div>
       </Card>
 

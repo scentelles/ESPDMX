@@ -25,6 +25,14 @@ public:
   void setFixtureValues(uint16_t fixtureId, const uint8_t* values, uint8_t count);
   uint8_t getChannelValue(uint16_t channel);
   
+  // Virtual Console Fallback
+  void setVirtualConsoleValue(uint16_t channel, uint8_t value);
+  void restoreVirtualConsole();
+  
+  // Overrides (for Strobe White-out)
+  void setChannelOverride(uint16_t channel, uint8_t value);
+  void clearAllOverrides();
+  
   // Fixtures
   void addFixture(uint16_t id, uint16_t address, uint8_t channels);
   void removeFixture(uint16_t id);
@@ -41,6 +49,9 @@ private:
   
   // dmxData[0] = start code (0x00), dmxData[1..512] = channels
   uint8_t dmxData[DMX_PACKET_SIZE];
+  uint8_t virtualConsoleData[DMX_PACKET_SIZE];
+  uint8_t overrideData[DMX_PACKET_SIZE];
+  bool overrideActive[DMX_PACKET_SIZE];
   std::vector<DMXFixture> fixtures;
   
   uint8_t strobeSpeed;

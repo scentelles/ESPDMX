@@ -43,9 +43,23 @@ export interface VirtualGroup {
   assignments: VirtualGroupAssignment[];
 }
 
+export interface FixtureEffect {
+  type: string;
+  speed: number;
+  colorHex: string;
+  reverse?: boolean;
+}
+
 export interface FixtureChannelValue {
   fixtureId: string;              // refers to instanceId
   values: Record<string, number>; // channel name -> value (0-255)
+  effect?: FixtureEffect;
+}
+
+export interface VirtualGroupSceneValue {
+  groupId: string;
+  colorHex?: string;
+  dimmer?: number;
 }
 
 export interface ColorScene {
@@ -53,7 +67,9 @@ export interface ColorScene {
   name: string;
   description: string;
   icon: string;
+  groupId?: number; // 1 or 2
   fixtureValues: FixtureChannelValue[];
+  virtualGroupValues?: VirtualGroupSceneValue[];
 }
 
 export interface ShowStep {
@@ -73,6 +89,13 @@ export interface DynamicShow {
   isRunning?: boolean;
 }
 
+export type PedalAction = 'none' | 'smoke' | 'strobe' | 'scene' | 'show' | 'scene_sequence' | 'scene_sequence_g1' | 'scene_sequence_g2' | 'show_sequence' | 'sound_volume' | 'sound_beat' | 'sound_color' | 'sound_vu';
+
+export interface PedalButtonConfig {
+  action: PedalAction;
+  targetId: string;
+}
+
 export interface Setup {
   id: string;
   name: string;
@@ -80,6 +103,13 @@ export interface Setup {
   virtualGroups: VirtualGroup[];
   scenes: ColorScene[];
   shows: DynamicShow[];
+  pedalConfig?: PedalButtonConfig[];
+}
+
+export interface BlePedalActionDef {
+  ccId: number;
+  action: string;
+  param: string;
 }
 
 export interface SystemConfig {
@@ -89,12 +119,15 @@ export interface SystemConfig {
   dmxBaud: number;
   maxFixtures: number;
   updateInterval: number;
+  soundSensitivity: number;
+  soundDynamics: number;
   activeSetupId?: string;
 }
 
 export interface LightingState {
   activeSetupId?: string;
   activeScene?: string;
+  activeSceneG2?: string;
   activeShow?: string;
   strobeActive: boolean;
   smokeActive: boolean;
@@ -102,6 +135,7 @@ export interface LightingState {
   dmxOutput: number[];
   soundMode?: number;
   soundSensitivity?: number;
+  soundDynamics?: number;
   audio?: {
     volume: number;
     bass: number;
@@ -109,4 +143,5 @@ export interface LightingState {
     high: number;
     beat: boolean;
   };
+  pedalConnected?: boolean;
 }

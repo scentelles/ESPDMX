@@ -20,7 +20,26 @@ void SceneManager::begin(DMXEngine* dmxEngine) {
   }
   
   if (setupsMeta.size() > 0) {
-    setActiveSetup(setupsMeta[0].id);
+    // Restore persisted active setup, fallback to first
+    String savedId = "";
+    if (SPIFFS.exists("/active_setup.txt")) {
+      File f = SPIFFS.open("/active_setup.txt", "r");
+      if (f) {
+        savedId = f.readString();
+        savedId.trim();
+        f.close();
+      }
+    }
+    
+    // Verify the saved ID exists in the setups list
+    bool found = false;
+    if (savedId.length() > 0) {
+      for (const auto& meta : setupsMeta) {
+        if (meta.id == savedId) { found = true; break; }
+      }
+    }
+    
+    setActiveSetup(found ? savedId : setupsMeta[0].id);
   }
 }
 
@@ -107,7 +126,7 @@ FixtureProfile* SceneManager::getProfile(const String& id) {
 // ── Setups Index ────────────────────────────────────────────────────
 
 String SceneManager::getSetupsListJSON() {
-  DynamicJsonDocument doc(1024);
+  DynamicJsonDocument doc(8192);
   JsonArray arr = doc.createNestedArray("setups");
   
   for (const auto& meta : setupsMeta) {
@@ -189,6 +208,13 @@ bool SceneManager::setActiveSetup(const String& id) {
   
   activeSetup = newSetup;
   activeSetupId = id;
+  
+  // Persist active setup ID for reboot recovery
+  File f = SPIFFS.open("/active_setup.txt", "w");
+  if (f) {
+    f.print(id);
+    f.close();
+  }
   
   return true;
 }
@@ -331,7 +357,7 @@ Show* SceneManager::getShow(const String& id) {
 // ── JSON Serialization ──────────────────────────────────────────────
 
 String SceneManager::getProfilesJSON() {
-  DynamicJsonDocument doc(4096);
+  DynamicJsonDocument doc(16384);
   JsonArray arr = doc.createNestedArray("profiles");
   
   for (const auto& p : profiles) {
@@ -360,7 +386,7 @@ String SceneManager::getProfilesJSON() {
 }
 
 String SceneManager::getActiveSetupJSON() {
-  DynamicJsonDocument doc(8192);
+  DynamicJsonDocument doc(16384);
   JsonObject obj = doc.createNestedObject("setup");
   obj["id"] = activeSetup.id;
   obj["name"] = activeSetup.name;
@@ -395,6 +421,7 @@ String SceneManager::getActiveSetupJSON() {
     sObj["name"] = s.name;
     sObj["description"] = s.description;
     sObj["icon"] = s.icon;
+    sObj["groupId"] = s.groupId;
     JsonArray fvArr = sObj.createNestedArray("fixtureValues");
     for (const auto& fv : s.fixtureValues) {
       JsonObject fvObj = fvArr.createNestedObject();
@@ -403,6 +430,13 @@ String SceneManager::getActiveSetupJSON() {
       for (const auto& kv : fv.values) {
         vals[kv.first] = kv.second;
       }
+    }
+    JsonArray vgvArr = sObj.createNestedArray("virtualGroupValues");
+    for (const auto& vgv : s.virtualGroupValues) {
+      JsonObject vgvObj = vgvArr.createNestedObject();
+      vgvObj["groupId"] = vgv.groupId;
+      if (vgv.colorHex.length() > 0) vgvObj["colorHex"] = vgv.colorHex;
+      if (vgv.dimmer >= 0) vgvObj["dimmer"] = vgv.dimmer;
     }
   }
   
@@ -423,6 +457,22 @@ String SceneManager::getActiveSetupJSON() {
       stepObj["transitionTime"] = step.transitionTime;
       stepObj["smoothTransition"] = step.smoothTransition;
     }
+  }
+  
+  // Pedal Config
+  JsonArray pedalArr = obj.createNestedArray("pedalConfig");
+  for (int i = 0; i < 3; i++) {
+    JsonObject pObj = pedalArr.createNestedObject();
+    pObj["action"] = activeSetup.pedalButtons[i].action.length() > 0 ? activeSetup.pedalButtons[i].action : "none";
+    pObj["targetId"] = activeSetup.pedalButtons[i].targetId;
+  }
+
+  // BLE Pedal Config
+  JsonArray blePedalArr = obj.createNestedArray("blePedalConfig");
+  for (int i = 0; i < 16; i++) {
+    JsonObject pObj = blePedalArr.createNestedObject();
+    pObj["action"] = activeSetup.blePedalButtons[i].action.length() > 0 ? activeSetup.blePedalButtons[i].action : "none";
+    pObj["targetId"] = activeSetup.blePedalButtons[i].targetId;
   }
   
   String result;
@@ -452,11 +502,68 @@ void SceneManager::setVirtualGroupValue(const String& groupId, uint8_t value) {
   if (!vg) return;
   
   for (const auto& a : vg->assignments) {
-    int addr = resolveDMXAddress(a.instanceId, a.channelName);
-    if (addr >= 1 && addr <= 512) {
-      engine->setChannelValue(addr, value);
+    FixtureInstance* inst = getInstance(a.instanceId);
+    if (!inst || !inst->enabled) continue;
+    FixtureProfile* prof = getProfile(inst->profileId);
+    if (!prof) continue;
+    
+    for (const auto& ch : prof->channels) {
+      if (a.channelName != "ALL" && a.channelName != ch.name) continue;
+      
+      if (ch.type.equalsIgnoreCase("dimmer") || ch.name.equalsIgnoreCase("dimmer") || ch.name.equalsIgnoreCase("dim")) {
+        int addr = inst->dmxAddress + ch.offset;
+        if (addr >= 1 && addr <= 512) {
+          engine->setVirtualConsoleValue(addr, value);
+        }
+      }
     }
   }
+}
+
+// ── Pedal Config ────────────────────────────────────────────────────
+
+String SceneManager::getPedalConfigJSON() {
+  DynamicJsonDocument doc(4096);
+  JsonArray arr = doc.createNestedArray("pedalConfig");
+  for (int i = 0; i < 3; i++) {
+    JsonObject obj = arr.createNestedObject();
+    obj["button"] = i + 1;
+    obj["action"] = activeSetup.pedalButtons[i].action.length() > 0 ? activeSetup.pedalButtons[i].action : "none";
+    obj["targetId"] = activeSetup.pedalButtons[i].targetId;
+  }
+  String result;
+  serializeJson(doc, result);
+  return result;
+}
+
+bool SceneManager::savePedalConfig(int button, const String& action, const String& targetId) {
+  if (button < 1 || button > 3) return false;
+  activeSetup.pedalButtons[button - 1].action = action;
+  activeSetup.pedalButtons[button - 1].targetId = targetId;
+  saveActiveSetup();
+  return true;
+}
+
+String SceneManager::getBlePedalConfigJSON() {
+  DynamicJsonDocument doc(4096);
+  JsonArray arr = doc.to<JsonArray>();
+  for (int i = 0; i < 16; i++) {
+    JsonObject obj = arr.createNestedObject();
+    obj["ccId"] = i + 1;
+    obj["action"] = activeSetup.blePedalButtons[i].action.length() > 0 ? activeSetup.blePedalButtons[i].action : "none";
+    obj["param"] = activeSetup.blePedalButtons[i].targetId;
+  }
+  String result;
+  serializeJson(doc, result);
+  return result;
+}
+
+bool SceneManager::saveBlePedalConfig(int button, const String& action, const String& targetId, bool autoSave) {
+  if (button < 1 || button > 16) return false;
+  activeSetup.blePedalButtons[button - 1].action = action;
+  activeSetup.blePedalButtons[button - 1].targetId = targetId;
+  if (autoSave) saveActiveSetup();
+  return true;
 }
 
 // ── Persistence ─────────────────────────────────────────────────────
@@ -469,7 +576,7 @@ bool SceneManager::saveProfilesToFile() {
   File file = SPIFFS.open("/profiles.json", "w");
   if (!file) return false;
   
-  DynamicJsonDocument doc(4096);
+  DynamicJsonDocument doc(16384);
   JsonArray arr = doc.to<JsonArray>();
   for (const auto& p : profiles) {
     JsonObject obj = arr.createNestedObject();
@@ -500,7 +607,7 @@ bool SceneManager::loadProfilesFromFile() {
   File file = SPIFFS.open("/profiles.json", "r");
   if (!file) return false;
   
-  DynamicJsonDocument doc(4096);
+  DynamicJsonDocument doc(16384);
   if (deserializeJson(doc, file)) { file.close(); return false; }
   file.close();
   
@@ -538,7 +645,7 @@ bool SceneManager::saveSetupsIndex() {
   File file = SPIFFS.open("/setups.json", "w");
   if (!file) return false;
   
-  DynamicJsonDocument doc(2048);
+  DynamicJsonDocument doc(8192);
   JsonArray arr = doc.to<JsonArray>();
   for (const auto& meta : setupsMeta) {
     JsonObject obj = arr.createNestedObject();
@@ -555,7 +662,7 @@ bool SceneManager::loadSetupsIndex() {
   File file = SPIFFS.open("/setups.json", "r");
   if (!file) return false;
   
-  DynamicJsonDocument doc(2048);
+  DynamicJsonDocument doc(8192);
   if (deserializeJson(doc, file)) { file.close(); return false; }
   file.close();
   
@@ -572,7 +679,7 @@ bool SceneManager::saveSetupToFile(const SetupDef& setup) {
   if (!file) return false;
   
   // High capacity for full setup
-  DynamicJsonDocument doc(8192);
+  DynamicJsonDocument doc(16384);
   doc["id"] = setup.id;
   doc["name"] = setup.name;
   
@@ -606,14 +713,29 @@ bool SceneManager::saveSetupToFile(const SetupDef& setup) {
     sObj["name"] = s.name;
     sObj["description"] = s.description;
     sObj["icon"] = s.icon;
+    sObj["groupId"] = s.groupId;
     JsonArray fvArr = sObj.createNestedArray("fixtureValues");
     for (const auto& fv : s.fixtureValues) {
       JsonObject fvObj = fvArr.createNestedObject();
       fvObj["fixtureId"] = fv.fixtureId;
+      if (fv.effect.type.length() > 0 && fv.effect.type != "none") {
+        JsonObject fxObj = fvObj.createNestedObject("effect");
+        fxObj["type"] = fv.effect.type;
+        fxObj["speed"] = fv.effect.speed;
+        fxObj["colorHex"] = fv.effect.colorHex;
+        fxObj["reverse"] = fv.effect.reverse;
+      }
       JsonObject vals = fvObj.createNestedObject("values");
       for (const auto& kv : fv.values) {
         vals[kv.first] = kv.second;
       }
+    }
+    JsonArray vgvArr = sObj.createNestedArray("virtualGroupValues");
+    for (const auto& vgv : s.virtualGroupValues) {
+      JsonObject vgvObj = vgvArr.createNestedObject();
+      vgvObj["groupId"] = vgv.groupId;
+      if (vgv.colorHex.length() > 0) vgvObj["colorHex"] = vgv.colorHex;
+      if (vgv.dimmer >= 0) vgvObj["dimmer"] = vgv.dimmer;
     }
   }
   
@@ -635,6 +757,22 @@ bool SceneManager::saveSetupToFile(const SetupDef& setup) {
     }
   }
   
+  // Pedal Config
+  JsonArray pedalArr = doc.createNestedArray("pedalConfig");
+  for (int i = 0; i < 3; i++) {
+    JsonObject pObj = pedalArr.createNestedObject();
+    pObj["action"] = setup.pedalButtons[i].action.length() > 0 ? setup.pedalButtons[i].action : "none";
+    pObj["targetId"] = setup.pedalButtons[i].targetId;
+  }
+  
+  // BLE Pedal Config
+  JsonArray blePedalArr = doc.createNestedArray("blePedalConfig");
+  for (int i = 0; i < 16; i++) {
+    JsonObject pObj = blePedalArr.createNestedObject();
+    pObj["action"] = setup.blePedalButtons[i].action.length() > 0 ? setup.blePedalButtons[i].action : "none";
+    pObj["targetId"] = setup.blePedalButtons[i].targetId;
+  }
+  
   serializeJson(doc, file);
   file.close();
   return true;
@@ -645,7 +783,7 @@ bool SceneManager::loadSetupFromFile(const String& id, SetupDef& setup) {
   File file = SPIFFS.open("/setup_" + id + ".json", "r");
   if (!file) return false;
   
-  DynamicJsonDocument doc(8192);
+  DynamicJsonDocument doc(16384);
   if (deserializeJson(doc, file)) { file.close(); return false; }
   file.close();
   
@@ -688,15 +826,35 @@ bool SceneManager::loadSetupFromFile(const String& id, SetupDef& setup) {
     s.name = sObj["name"].as<String>();
     s.description = sObj["description"].as<String>();
     s.icon = sObj["icon"].as<String>();
+    s.groupId = sObj["groupId"] | 1;
     JsonArray fvArr = sObj["fixtureValues"];
     for (JsonObject fvObj : fvArr) {
       FixtureChannelValues fv;
       fv.fixtureId = fvObj["fixtureId"].as<String>();
+      if (fvObj.containsKey("effect")) {
+        JsonObject fxObj = fvObj["effect"];
+        fv.effect.type = fxObj["type"].as<String>();
+        fv.effect.speed = fxObj["speed"] | 50;
+        fv.effect.colorHex = fxObj["colorHex"].as<String>();
+        fv.effect.reverse = fxObj["reverse"] | false;
+      } else {
+        fv.effect.type = "none";
+      }
       JsonObject vals = fvObj["values"];
       for (JsonPair kv : vals) {
         fv.values[String(kv.key().c_str())] = kv.value().as<uint8_t>();
       }
       s.fixtureValues.push_back(fv);
+    }
+    if (sObj.containsKey("virtualGroupValues")) {
+      JsonArray vgvArr = sObj["virtualGroupValues"];
+      for (JsonObject vgvObj : vgvArr) {
+        VirtualGroupSceneValue vgv;
+        vgv.groupId = vgvObj["groupId"].as<String>();
+        vgv.colorHex = vgvObj["colorHex"] | "";
+        vgv.dimmer = vgvObj.containsKey("dimmer") ? vgvObj["dimmer"].as<int>() : -1;
+        s.virtualGroupValues.push_back(vgv);
+      }
     }
     setup.scenes.push_back(s);
   }
@@ -721,6 +879,38 @@ bool SceneManager::loadSetupFromFile(const String& id, SetupDef& setup) {
       s.steps.push_back(step);
     }
     setup.shows.push_back(s);
+  }
+  
+  // Load pedal config
+  for (int i = 0; i < 3; i++) {
+    setup.pedalButtons[i].action = "none";
+    setup.pedalButtons[i].targetId = "";
+  }
+  if (doc.containsKey("pedalConfig")) {
+    JsonArray pedalArr = doc["pedalConfig"];
+    int idx = 0;
+    for (JsonObject pObj : pedalArr) {
+      if (idx >= 3) break;
+      setup.pedalButtons[idx].action = pObj["action"].as<String>();
+      setup.pedalButtons[idx].targetId = pObj["targetId"].as<String>();
+      idx++;
+    }
+  }
+
+  // Load BLE pedal config
+  for (int i = 0; i < 16; i++) {
+    setup.blePedalButtons[i].action = "none";
+    setup.blePedalButtons[i].targetId = "";
+  }
+  if (doc.containsKey("blePedalConfig")) {
+    JsonArray blePedalArr = doc["blePedalConfig"];
+    int idx = 0;
+    for (JsonObject pObj : blePedalArr) {
+      if (idx >= 16) break;
+      setup.blePedalButtons[idx].action = pObj["action"].as<String>();
+      setup.blePedalButtons[idx].targetId = pObj["targetId"].as<String>();
+      idx++;
+    }
   }
   
   return true;

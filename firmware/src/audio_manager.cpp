@@ -12,7 +12,7 @@ AudioManager::AudioManager()
   , smoothHigh(0) {
   memset(sampleBuffer, 0, sizeof(sampleBuffer));
   memset(energyHistory, 0, sizeof(energyHistory));
-  audioData = {0, 0, 0, 0, false, 0, 5};
+  audioData = {0, 0, 0, 0, false, 0, 5, 0};
   fft = new ArduinoFFT<double>(vReal, vImag, SAMPLES, SAMPLE_RATE);
 }
 
@@ -185,8 +185,16 @@ void AudioManager::processAudio() {
   if (midEnergy > 1.0f) midEnergy = 1.0f;
   if (highEnergy > 1.0f) highEnergy = 1.0f;
   if (lowEnergy < 0) lowEnergy = 0;
-  if (midEnergy < 0) midEnergy = 0;
   if (highEnergy < 0) highEnergy = 0;
+
+  // Apply compression (dynamics)
+  if (audioData.dynamics > 0) {
+    float dynFactor = 1.0f - (audioData.dynamics * 0.9f / 100.0f); // 1.0 down to 0.1
+    if (rms > 0.001f) rms = powf(rms, dynFactor);
+    if (lowEnergy > 0.001f) lowEnergy = powf(lowEnergy, dynFactor);
+    if (midEnergy > 0.001f) midEnergy = powf(midEnergy, dynFactor);
+    if (highEnergy > 0.001f) highEnergy = powf(highEnergy, dynFactor);
+  }
 
   // ── 5. Exponential smoothing ──
   const float alpha = 0.3f;
@@ -242,6 +250,10 @@ void AudioManager::setMode(SoundMode mode) {
 
 void AudioManager::setSensitivity(uint8_t sens) {
   audioData.sensitivity = constrain(sens, 1, 10);
+}
+
+void AudioManager::setDynamics(uint8_t dyn) {
+  audioData.dynamics = constrain(dyn, 0, 100);
 }
 
 void AudioManager::getSoundColor(uint8_t& r, uint8_t& g, uint8_t& b) {

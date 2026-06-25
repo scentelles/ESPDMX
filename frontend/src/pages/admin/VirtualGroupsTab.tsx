@@ -50,12 +50,10 @@ export const VirtualGroupsTab = () => {
     if (!editingGroup) return;
     if (activeSetup.instances.length === 0) return;
     const firstInst = activeSetup.instances[0];
-    const profile = store.profiles.find(p => p.id === firstInst.profileId);
-    const firstChan = profile && profile.channels.length > 0 ? profile.channels[0].name : '';
     
     setEditingGroup({
       ...editingGroup,
-      assignments: [...editingGroup.assignments, { instanceId: firstInst.id, channelName: firstChan }]
+      assignments: [...editingGroup.assignments, { instanceId: firstInst.id, channelName: 'ALL' }]
     });
   };
 
@@ -73,13 +71,6 @@ export const VirtualGroupsTab = () => {
        ...editingGroup,
        assignments: editingGroup.assignments.filter((_, i) => i !== idx)
     });
-  };
-
-  const getChannelsForInstance = (instId: string) => {
-    const inst = activeSetup.instances.find(x => x.id === instId);
-    if (!inst) return [];
-    const prof = store.profiles.find(p => p.id === inst.profileId);
-    return prof ? prof.channels : [];
   };
 
   const getInstanceName = (instId: string) => {
@@ -109,9 +100,9 @@ export const VirtualGroupsTab = () => {
 
           <div className="mb-4">
             <div className="flex items-center justify-between mb-2">
-              <label className="text-sm font-medium text-slate-300">Assignations</label>
+              <label className="text-sm font-medium text-slate-300">Projecteurs liés</label>
               <Button variant="outline" size="sm" onClick={addAssignment} className="flex items-center gap-1">
-                <Plus size={14} /> Lier un canal Projecteur
+                <Plus size={14} /> Lier un Projecteur
               </Button>
             </div>
             
@@ -120,13 +111,8 @@ export const VirtualGroupsTab = () => {
                   <div key={idx} className="flex items-center gap-2 bg-slate-900 rounded p-2">
                      <Select
                        value={ass.instanceId}
-                       onChange={(e) => updateAssignment(idx, { instanceId: e.target.value })}
+                       onChange={(e) => updateAssignment(idx, { instanceId: e.target.value, channelName: 'ALL' })}
                        options={activeSetup.instances.map(inst => ({ value: inst.id, label: inst.name }))}
-                     />
-                     <Select
-                       value={ass.channelName}
-                       onChange={(e) => updateAssignment(idx, { channelName: e.target.value })}
-                       options={getChannelsForInstance(ass.instanceId).map(ch => ({ value: ch.name, label: ch.name }))}
                      />
                      <button onClick={() => removeAssignment(idx)} className="text-red-400 hover:text-red-300 p-1 ml-auto">
                         <Trash2 size={16} />

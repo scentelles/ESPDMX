@@ -12,6 +12,8 @@ struct SystemConfig {
   uint32_t dmxBaud;
   uint8_t maxFixtures;
   uint16_t updateInterval;
+  uint8_t soundSensitivity;
+  uint8_t soundDynamics;
 };
 
 class ConfigManager {

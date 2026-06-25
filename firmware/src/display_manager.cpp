@@ -69,6 +69,40 @@ void DisplayManager::showBootLogo() {
   spr.pushSprite(0, 0);
 }
 
+void DisplayManager::showBootMessage(const String& line1, const String& line2) {
+  currentScreen = SCREEN_BOOT_LOGO;
+  screenStartTime = millis();
+
+  spr.fillSprite(COL_BG);
+
+  // Double frame
+  spr.drawRect(0, 0, SCREEN_W, SCREEN_H, COL_ACCENT);
+  spr.drawRect(1, 1, SCREEN_W - 2, SCREEN_H - 2, COL_DIM);
+
+  // Lightning bolt
+  spr.drawXBitmap(6, 28, bolt_icon, 16, 24, COL_ACCENT);
+
+  // Title
+  spr.setTextDatum(TL_DATUM);
+  spr.setTextFont(4);
+  spr.setTextColor(COL_ACCENT, COL_BG);
+  spr.drawString("SUDSHOW", 25, 8);
+
+  // Custom messages
+  spr.setTextFont(1);
+  spr.setTextDatum(TC_DATUM);
+  spr.setTextColor(COL_TEXT, COL_BG);
+  spr.drawString(line1, SCREEN_W / 2, 40);
+  spr.setTextColor(COL_DIM, COL_BG);
+  spr.drawString(line2, SCREEN_W / 2, 52);
+
+  // Version
+  spr.setTextDatum(BR_DATUM);
+  spr.drawString("v2.0", SCREEN_W - 4, SCREEN_H - 2);
+
+  spr.pushSprite(0, 0);
+}
+
 // ── WiFi Connecting Screen ──────────────────────────────────────────
 void DisplayManager::showWiFiConnecting(const String& ssid, int attempt, int maxAttempts) {
   currentScreen = SCREEN_WIFI_CONNECTING;
@@ -112,23 +146,34 @@ void DisplayManager::showReady(const String& ip, bool apMode) {
   spr.setTextFont(1);
   spr.setTextDatum(TC_DATUM);
 
-  if (apMode) {
+  if (ip == "MODE SHOW") {
+    spr.setTextColor(TFT_BLUE, COL_BG);
+    spr.drawString("Bluetooth Actif", SCREEN_W / 2, 20);
+    spr.setTextFont(2);
     spr.setTextColor(COL_WARN, COL_BG);
-    spr.drawString("Mode Point d'Acces", SCREEN_W / 2, 20);
+    spr.drawString("Wi-Fi Desactive", SCREEN_W / 2, 36);
+    spr.setTextFont(1);
+    spr.setTextColor(COL_DIM, COL_BG);
+    spr.drawString("Pret pour la scene !", SCREEN_W / 2, 62);
   } else {
-    spr.setTextColor(COL_OK, COL_BG);
-    spr.drawString("WiFi Connecte", SCREEN_W / 2, 20);
+    if (apMode) {
+      spr.setTextColor(COL_WARN, COL_BG);
+      spr.drawString("Mode Point d'Acces", SCREEN_W / 2, 20);
+    } else {
+      spr.setTextColor(COL_OK, COL_BG);
+      spr.drawString("WiFi Connecte", SCREEN_W / 2, 20);
+    }
+
+    // IP Address
+    spr.setTextFont(2);
+    spr.setTextColor(COL_TEXT, COL_BG);
+    spr.drawString(ip, SCREEN_W / 2, 36);
+
+    // Footer
+    spr.setTextFont(1);
+    spr.setTextColor(COL_DIM, COL_BG);
+    spr.drawString("Interface Web disponible", SCREEN_W / 2, 62);
   }
-
-  // IP Address
-  spr.setTextFont(2);
-  spr.setTextColor(COL_TEXT, COL_BG);
-  spr.drawString(ip, SCREEN_W / 2, 36);
-
-  // Footer
-  spr.setTextFont(1);
-  spr.setTextColor(COL_DIM, COL_BG);
-  spr.drawString("Interface Web disponible", SCREEN_W / 2, 62);
 
   spr.pushSprite(0, 0);
 }
@@ -140,7 +185,12 @@ void DisplayManager::showStatus(const DisplayStatus& status) {
   spr.fillSprite(COL_BG);
 
   // ── Top bar: WiFi dot + IP + uptime ──
-  drawWiFiIcon(1, 1, status.wifiConnected);
+  if (status.showModeActive) {
+    spr.fillCircle(1 + 4, 1 + 4, 4, status.blePedalConnected ? TFT_BLUE : COL_ERR);
+  } else {
+    drawWiFiIcon(1, 1, status.wifiConnected);
+  }
+
   spr.setTextFont(1);
   spr.setTextDatum(TL_DATUM);
   spr.setTextColor(COL_TEXT, COL_BG);
@@ -209,12 +259,16 @@ void DisplayManager::showStatus(const DisplayStatus& status) {
       spr.drawString(truncate(status.activeShow, 14), 34, 12);
       uint16_t dotCol = ((millis() / 500) % 2 == 0) ? COL_OK : COL_DARK;
       spr.fillCircle(SCREEN_W - 6, 20, 3, dotCol);
-    } else if (status.activeScene.length() > 0) {
+    } else if (status.activeScene.length() > 0 || status.activeSceneG2.length() > 0) {
       spr.setTextColor(COL_DIM, COL_BG);
-      spr.drawString("Scene:", 2, 14);
+      spr.drawString("Sc:", 2, 14);
       spr.setTextFont(2);
       spr.setTextColor(COL_SCENE, COL_BG);
-      spr.drawString(truncate(status.activeScene, 13), 42, 12);
+      String txt = "";
+      if (status.activeScene.length() > 0) txt += truncate(status.activeScene, 6);
+      if (status.activeScene.length() > 0 && status.activeSceneG2.length() > 0) txt += "+";
+      if (status.activeSceneG2.length() > 0) txt += truncate(status.activeSceneG2, 6);
+      spr.drawString(txt, 24, 12);
     } else {
       spr.setTextColor(COL_DIM, COL_BG);
       spr.drawString("Aucune scene active", 2, 17);
@@ -229,7 +283,20 @@ void DisplayManager::showStatus(const DisplayStatus& status) {
     spr.drawString("Fix:" + String(status.enabledFixtures) + "/" + String(status.fixtureCount), 2, 35);
 
     spr.setTextDatum(TC_DATUM);
-    spr.drawString("CPU:" + String(status.cpuLoad) + "%", 80, 35);
+    spr.drawString("CPU:" + String(status.cpuLoad) + "%", 76, 35);
+
+    // Pedal Status
+    if (status.showModeActive) {
+      spr.fillCircle(110 + 4, 34 + 4, 4, status.blePedalConnected ? TFT_BLUE : COL_ERR);
+      spr.setTextDatum(TL_DATUM);
+      spr.setTextColor(status.blePedalConnected ? TFT_BLUE : COL_DIM, COL_BG);
+      spr.drawString("B", 120, 35);
+    } else {
+      spr.fillCircle(110 + 4, 34 + 4, 4, status.pedalConnected ? COL_OK : COL_ERR);
+      spr.setTextDatum(TL_DATUM);
+      spr.setTextColor(status.pedalConnected ? COL_OK : COL_DIM, COL_BG);
+      spr.drawString("P", 120, 35);
+    }
 
     drawDMXIcon(136, 34, status.dmxActive);
     spr.setTextDatum(TL_DATUM);

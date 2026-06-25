@@ -38,9 +38,13 @@ struct DisplayStatus {
   // Fixtures
   int fixtureCount;
   int enabledFixtures;
+  bool pedalConnected;
+  bool blePedalConnected;
+  bool showModeActive;
   // Playback
   String activeSetupName;
   String activeScene;
+  String activeSceneG2;
   String activeShow;
   bool showRunning;
   // System
@@ -66,6 +70,7 @@ public:
 
   // Screen transitions
   void showBootLogo();
+  void showBootMessage(const String& line1, const String& line2);
   void showWiFiConnecting(const String& ssid, int attempt, int maxAttempts);
   void showReady(const String& ip, bool apMode);
   void showStatus(const DisplayStatus& status);
