@@ -19,12 +19,16 @@ const ACTION_LABELS: Record<PedalAction, string> = {
   sound_beat: '🥁 Son : Beat',
   sound_color: '🌈 Son : Couleur',
   sound_vu: '📶 Son : VU-Mètre',
+  sound_scene_g1: '🎵 Son : Scène Suivante (Groupe 1)',
+  sound_scene_g2: '🎵 Son : Scène Suivante (Groupe 2)',
+  sound_scene_seq: '🎵 Son : Scène Suivante (Tous Groupes)',
+  sound_scene_rnd: '🎵 Son : Scène Aléatoire',
 };
 
 const ACTION_GROUPS = [
   { label: 'Effets', actions: ['none', 'smoke', 'strobe'] as PedalAction[] },
   { label: 'Scènes & Shows', actions: ['scene', 'show', 'scene_sequence', 'scene_sequence_g1', 'scene_sequence_g2', 'show_sequence'] as PedalAction[] },
-  { label: 'Audio Réactif', actions: ['sound_volume', 'sound_beat', 'sound_color', 'sound_vu'] as PedalAction[] },
+  { label: 'Audio Réactif', actions: ['sound_volume', 'sound_beat', 'sound_color', 'sound_vu', 'sound_scene_g1', 'sound_scene_g2', 'sound_scene_seq', 'sound_scene_rnd'] as PedalAction[] },
 ];
 
 const BUTTON_LABELS = ['Bouton 1 (D3 seul)', 'Bouton 2 (D4 seul)', 'Bouton 3 (D3 + D4)'];
@@ -117,7 +121,11 @@ export const PedalConfigTab = () => {
       case 'sound_volume': return 'Toggle : la luminosité suit le volume du micro';
       case 'sound_beat': return 'Toggle : flash synchronisé sur les basses';
       case 'sound_color': return 'Toggle : couleur Bass=R, Mid=V, Aigu=B';
-      case 'sound_vu': return 'Toggle : VU-mètre Vert → Jaune → Rouge';
+      case 'sound_vu': return 'Toggle : mode VU-Mètre global';
+      case 'sound_scene_g1': return 'Toggle : scène suivante (Groupe 1) sur beat';
+      case 'sound_scene_g2': return 'Toggle : scène suivante (Groupe 2) sur beat';
+      case 'sound_scene_seq': return 'Toggle : scène suivante (Tous) sur beat';
+      case 'sound_scene_rnd': return 'Toggle : scène aléatoire (Tous) sur beat';
       default: return 'Aucune action assignée';
     }
   };

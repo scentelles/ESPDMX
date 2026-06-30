@@ -13,7 +13,11 @@ enum SoundMode {
   SOUND_VOLUME,    // Brightness follows volume
   SOUND_BEAT,      // Flash on beat detection
   SOUND_COLOR,     // Bass=R, Mid=G, High=B
-  SOUND_VU         // VU meter style pulse
+  SOUND_VU,        // VU meter style pulse
+  SOUND_SCENE_G1,  // Trigger next scene G1 on beat
+  SOUND_SCENE_G2,  // Trigger next scene G2 on beat
+  SOUND_SCENE_SEQ, // Trigger next scene Seq on beat
+  SOUND_SCENE_RND  // Trigger random scene on beat
 };
 
 struct AudioData {

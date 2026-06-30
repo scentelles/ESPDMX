@@ -89,7 +89,7 @@ export interface DynamicShow {
   isRunning?: boolean;
 }
 
-export type PedalAction = 'none' | 'smoke' | 'strobe' | 'scene' | 'show' | 'scene_sequence' | 'scene_sequence_g1' | 'scene_sequence_g2' | 'show_sequence' | 'sound_volume' | 'sound_beat' | 'sound_color' | 'sound_vu';
+export type PedalAction = 'none' | 'smoke' | 'strobe' | 'scene' | 'show' | 'scene_sequence' | 'scene_sequence_g1' | 'scene_sequence_g2' | 'show_sequence' | 'sound_volume' | 'sound_beat' | 'sound_color' | 'sound_vu' | 'sound_scene_g1' | 'sound_scene_g2' | 'sound_scene_seq' | 'sound_scene_rnd';
 
 export interface PedalButtonConfig {
   action: PedalAction;

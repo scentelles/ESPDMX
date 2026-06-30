@@ -1,0 +1,30 @@
+void triggerRandomSceneSequence() {
+  SetupDef* setup = sceneManager.getActiveSetup();
+  if (!setup || setup->scenes.empty()) return;
+  
+  if (showPlayback.running) {
+    showPlayback.running = false;
+    systemState.activeShow = "";
+  }
+  
+  int nextIndex = random(0, setup->scenes.size());
+  
+  // Try to avoid the currently active scene if we have more than 1 scene
+  if (setup->scenes.size() > 1) {
+    int attempts = 0;
+    while ((setup->scenes[nextIndex].id == systemState.activeScene || 
+            setup->scenes[nextIndex].id == systemState.activeSceneG2) && attempts < 10) {
+      nextIndex = random(0, setup->scenes.size());
+      attempts++;
+    }
+  }
+
+  int targetGroupId = setup->scenes[nextIndex].groupId;
+  
+  if (targetGroupId == 2 && systemState.activeSceneG2 != "") {
+    toggleScene(systemState.activeSceneG2);
+  } else if (targetGroupId == 1 && systemState.activeScene != "") {
+    toggleScene(systemState.activeScene);
+  }
+  toggleScene(setup->scenes[nextIndex].id);
+}

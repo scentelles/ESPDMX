@@ -1,0 +1,45 @@
+void triggerNextSceneSequence(int targetGroupId = -1) {
+  SetupDef* setup = sceneManager.getActiveSetup();
+  if (!setup || setup->scenes.empty()) return;
+  
+  if (showPlayback.running) {
+    showPlayback.running = false;
+    systemState.activeShow = "";
+  }
+  
+  int currentIndex = -1;
+  for (size_t i = 0; i < setup->scenes.size(); ++i) {
+    if (targetGroupId == 1 || targetGroupId == -1) {
+      if (setup->scenes[i].id == systemState.activeScene && setup->scenes[i].groupId == 1) {
+        currentIndex = i;
+        break;
+      }
+    }
+    if (targetGroupId == 2 || targetGroupId == -1) {
+      if (setup->scenes[i].id == systemState.activeSceneG2 && setup->scenes[i].groupId == 2) {
+        currentIndex = i;
+        break;
+      }
+    }
+  }
+  
+  int nextIndex = -1;
+  for (size_t i = 1; i <= setup->scenes.size(); ++i) {
+    int testIndex = (currentIndex + i) % setup->scenes.size();
+    if (targetGroupId == -1 || setup->scenes[testIndex].groupId == targetGroupId) {
+      nextIndex = testIndex;
+      break;
+    }
+  }
+  
+  if (nextIndex != -1 && nextIndex != currentIndex) {
+    if (targetGroupId == 2 && systemState.activeSceneG2 != "") {
+      toggleScene(systemState.activeSceneG2);
+    } else if (targetGroupId == 1 && systemState.activeScene != "") {
+      toggleScene(systemState.activeScene);
+    }
+    toggleScene(setup->scenes[nextIndex].id);
+  } else if (nextIndex != -1 && currentIndex == -1) {
+    toggleScene(setup->scenes[nextIndex].id);
+  }
+}

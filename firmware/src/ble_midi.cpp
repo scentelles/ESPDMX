@@ -17,6 +17,8 @@ bool           g_stopScanning = false;
 
 BleMidiCallback g_callback = nullptr;
 
+void scanCompleteCB(NimBLEScanResults results);
+
 void decodeBleMidi(uint8_t* data, size_t length) {
   // A CC message is 3 bytes: Status(0xB0-0xBF), CC Number(0-127), Value(0-127)
   // Since BLE MIDI packets have timestamps interspersed, we just scan for Status bytes.
@@ -54,18 +56,11 @@ class MyClientCallbacks : public NimBLEClientCallbacks {
     g_connected = false;
     g_doConnect = false;
 
-    // Simulate release for all buttons to prevent stuck actions (skip 16 to avoid reboot)
-    if (g_callback) {
-      for (uint8_t i = 1; i <= 15; i++) {
-        g_callback(i, 0);
-      }
-    }
-
     NimBLEScan* scan = NimBLEDevice::getScan();
     if (!scan->isScanning()) {
       Serial.println("[BLE] Relance du scan...");
       g_havePedal = false;
-      scan->start(3000, false);
+      scan->start(3000, scanCompleteCB, false);
     }
   }
 };
@@ -105,6 +100,7 @@ bool connectToPedal() {
   if (pedalChar->canNotify()) {
     pedalChar->subscribe(true, pedalNotifyCB);
     Serial.println("[BLE] Abonnement notifications OK.");
+    g_connected = true;
   } else {
     Serial.println("[BLE] Notifications non supportees !");
     g_client->disconnect();

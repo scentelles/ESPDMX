@@ -79,6 +79,9 @@ void recalculateDmx();
 void toggleScene(const String& sceneId);
 void computeSceneDmx(const String& sceneId, uint8_t* buf);
 void updateShowPlayback();
+void triggerNextSceneSequence(int targetGroupId = -1);
+void triggerRandomSceneSequence();
+void triggerNextShowSequence();
 void handleNotFound(AsyncWebServerRequest* request);
 void onWsEvent(AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len);
 bool createBackupFile(const String& path);
@@ -146,13 +149,13 @@ void setup() {
   uint32_t bleStart = millis();
   bool pedalFound = false;
   int lastSecondsLeft = -1;
-  while (millis() - bleStart < 3000) {
+  while (millis() - bleStart < 5000) {
     bleMidiLoop();
     if (isBleMidiConnected()) {
       pedalFound = true;
       break;
     }
-    int secondsLeft = 3 - ((millis() - bleStart) / 1000);
+    int secondsLeft = 5 - ((millis() - bleStart) / 1000);
     if (secondsLeft != lastSecondsLeft) {
       displayManager.showBootMessage("Recherche BLE...", String(secondsLeft) + "s");
       lastSecondsLeft = secondsLeft;
@@ -367,7 +370,15 @@ void loop() {
   }
   audioManager.update();
 
-  if (audioManager.getMode() != SOUND_OFF) {
+  if (audioManager.getMode() == SOUND_SCENE_G1) {
+    if (audioManager.getData().beatDetected) triggerNextSceneSequence(1);
+  } else if (audioManager.getMode() == SOUND_SCENE_G2) {
+    if (audioManager.getData().beatDetected) triggerNextSceneSequence(2);
+  } else if (audioManager.getMode() == SOUND_SCENE_SEQ) {
+    if (audioManager.getData().beatDetected) triggerNextSceneSequence(-1);
+  } else if (audioManager.getMode() == SOUND_SCENE_RND) {
+    if (audioManager.getData().beatDetected) triggerRandomSceneSequence();
+  } else if (audioManager.getMode() != SOUND_OFF && audioManager.getMode() <= SOUND_VU && !systemState.strobeActive) {
     uint8_t r, g, b;
     audioManager.getSoundColor(r, g, b);
     uint8_t brightness = audioManager.getSoundBrightness();
@@ -398,9 +409,12 @@ void loop() {
   }
   
   static bool pedalWasConnected = false;
-  bool pedalIsConnected = (millis() - systemState.lastPedalPingTime < 10000);
-  if (pedalWasConnected && !pedalIsConnected) {
-    // Pedal disconnected: cancel ongoing pedal actions
+  static bool blePedalWasConnected = false;
+  bool pedalIsConnected = (systemState.lastPedalPingTime > 0) && (millis() - systemState.lastPedalPingTime < 10000);
+  bool blePedalIsConnected = isBleMidiConnected();
+  
+  if ((pedalWasConnected && !pedalIsConnected) || (blePedalWasConnected && !blePedalIsConnected)) {
+    // Pedal disconnected: cancel ongoing pedal actions and turn off DMX output
     systemState.smokeActive = false;
     
     if (systemState.strobeActive) {
@@ -408,8 +422,17 @@ void loop() {
       systemState.strobeActive = false;
       dmxEngine.clearAllOverrides();
     }
+    
+    // Turn off active scenes, shows, and audio
+    systemState.activeScene = "";
+    systemState.activeSceneG2 = "";
+    systemState.activeShow = "";
+    showPlayback.running = false;
+    audioManager.setMode(SOUND_OFF);
+    dmxEngine.restoreVirtualConsole();
   }
   pedalWasConnected = pedalIsConnected;
+  blePedalWasConnected = blePedalIsConnected;
   
   systemState.uptime = millis() / 1000;
   systemState.freeMemory = ESP.getFreeHeap();
@@ -929,6 +952,109 @@ bool restoreBackupFile(const String& path) {
   return true;
 }
 
+void triggerRandomSceneSequence() {
+  SetupDef* setup = sceneManager.getActiveSetup();
+  if (!setup || setup->scenes.empty()) return;
+  
+  if (showPlayback.running) {
+    showPlayback.running = false;
+    systemState.activeShow = "";
+  }
+  
+  int nextIndex = random(0, setup->scenes.size());
+  
+  // Try to avoid the currently active scene if we have more than 1 scene
+  if (setup->scenes.size() > 1) {
+    int attempts = 0;
+    while ((setup->scenes[nextIndex].id == systemState.activeScene || 
+            setup->scenes[nextIndex].id == systemState.activeSceneG2) && attempts < 10) {
+      nextIndex = random(0, setup->scenes.size());
+      attempts++;
+    }
+  }
+
+  int targetGroupId = setup->scenes[nextIndex].groupId;
+  
+  if (targetGroupId == 2 && systemState.activeSceneG2 != "") {
+    toggleScene(systemState.activeSceneG2);
+  } else if (targetGroupId == 1 && systemState.activeScene != "") {
+    toggleScene(systemState.activeScene);
+  }
+  toggleScene(setup->scenes[nextIndex].id);
+}
+
+void triggerNextSceneSequence(int targetGroupId) {
+  SetupDef* setup = sceneManager.getActiveSetup();
+  if (!setup || setup->scenes.empty()) return;
+  
+  if (showPlayback.running) {
+    showPlayback.running = false;
+    systemState.activeShow = "";
+  }
+  
+  int currentIndex = -1;
+  for (size_t i = 0; i < setup->scenes.size(); ++i) {
+    if (targetGroupId == 1 || targetGroupId == -1) {
+      if (setup->scenes[i].id == systemState.activeScene && setup->scenes[i].groupId == 1) {
+        currentIndex = i;
+        break;
+      }
+    }
+    if (targetGroupId == 2 || targetGroupId == -1) {
+      if (setup->scenes[i].id == systemState.activeSceneG2 && setup->scenes[i].groupId == 2) {
+        currentIndex = i;
+        break;
+      }
+    }
+  }
+  
+  int nextIndex = -1;
+  for (size_t i = 1; i <= setup->scenes.size(); ++i) {
+    int testIndex = (currentIndex + i) % setup->scenes.size();
+    if (targetGroupId == -1 || setup->scenes[testIndex].groupId == targetGroupId) {
+      nextIndex = testIndex;
+      break;
+    }
+  }
+  
+  if (nextIndex != -1 && nextIndex != currentIndex) {
+    if (targetGroupId == 2 && systemState.activeSceneG2 != "") {
+      toggleScene(systemState.activeSceneG2);
+    } else if (targetGroupId == 1 && systemState.activeScene != "") {
+      toggleScene(systemState.activeScene);
+    }
+    toggleScene(setup->scenes[nextIndex].id);
+  } else if (nextIndex != -1 && currentIndex == -1) {
+    toggleScene(setup->scenes[nextIndex].id);
+  }
+}
+
+void triggerNextShowSequence() {
+  SetupDef* setup = sceneManager.getActiveSetup();
+  if (!setup || setup->shows.empty()) return;
+
+  int currentIndex = -1;
+  for (size_t i = 0; i < setup->shows.size(); ++i) {
+    if (setup->shows[i].id == systemState.activeShow) {
+      currentIndex = i;
+      break;
+    }
+  }
+  int nextIndex = (currentIndex + 1) % setup->shows.size();
+  
+  Show* nextShow = sceneManager.getShow(setup->shows[nextIndex].id);
+  if (nextShow && !nextShow->steps.empty()) {
+    nextShow->isRunning = true;
+    showPlayback.running = true;
+    showPlayback.showId = nextShow->id;
+    showPlayback.currentStep = 0;
+    showPlayback.stepStartTime = millis();
+    showPlayback.inTransition = (nextShow->steps[0].transitionTime > 0);
+    systemState.activeShow = nextShow->id;
+    applySceneValues(nextShow->steps[0].sceneId);
+  }
+}
+
 void handlePedalAction(int button, const String& state) {
   if (button < 1 || button > 3) return;
   
@@ -965,13 +1091,17 @@ void handlePedalAction(int button, const String& state) {
           if (p) {
             if (p->strobeChannel.enabled) {
               uint16_t addr = i.dmxAddress + p->strobeChannel.offset;
-              if (addr >= 1 && addr <= 512) dmxEngine.setChannelValue(addr, p->strobeChannel.value);
+              if (addr >= 1 && addr <= 512) dmxEngine.setChannelOverride(addr, p->strobeChannel.value);
             }
             for (const auto& ch : p->channels) {
               if (isColorChannel(ch.name, "red") || isColorChannel(ch.name, "rouge") || 
                   isColorChannel(ch.name, "green") || isColorChannel(ch.name, "vert") ||
                   isColorChannel(ch.name, "blue") || isColorChannel(ch.name, "bleu") ||
                   isColorChannel(ch.name, "white") || isColorChannel(ch.name, "blanc")) {
+                uint16_t addr = i.dmxAddress + ch.offset;
+                if (addr >= 1 && addr <= 512) dmxEngine.setChannelOverride(addr, 255);
+              }
+              if (ch.type == "dimmer") {
                 uint16_t addr = i.dmxAddress + ch.offset;
                 if (addr >= 1 && addr <= 512) dmxEngine.setChannelOverride(addr, 255);
               }
@@ -1050,52 +1180,23 @@ void handlePedalAction(int button, const String& state) {
         // Appui court: scène suivante
         audioManager.setMode(SOUND_OFF);
         
-        if (showPlayback.running) {
-          showPlayback.running = false;
-          systemState.activeShow = "";
-        }
-        
         int targetGroupId = -1; // -1 means all groups
         if (cfg.action == "scene_sequence_g1") targetGroupId = 1;
         if (cfg.action == "scene_sequence_g2") targetGroupId = 2;
 
-        if (!setup->scenes.empty()) {
-          int currentIndex = -1;
-          for (size_t i = 0; i < setup->scenes.size(); ++i) {
-            if (targetGroupId == 1 || targetGroupId == -1) {
-              if (setup->scenes[i].id == systemState.activeScene && setup->scenes[i].groupId == 1) {
-                currentIndex = i;
-                break;
-              }
-            }
-            if (targetGroupId == 2 || targetGroupId == -1) {
-              if (setup->scenes[i].id == systemState.activeSceneG2 && setup->scenes[i].groupId == 2) {
-                currentIndex = i;
-                break;
-              }
-            }
+        static uint32_t lastSceneTrigger[3] = {0};
+        if (millis() - lastSceneTrigger[button - 1] < 300) {
+          // Double click: turn off the active scene(s) for this target group
+          if ((targetGroupId == 1 || targetGroupId == -1) && systemState.activeScene != "") {
+            toggleScene(systemState.activeScene);
           }
-          
-          int nextIndex = -1;
-          for (size_t i = 1; i <= setup->scenes.size(); ++i) {
-            int testIndex = (currentIndex + i) % setup->scenes.size();
-            if (targetGroupId == -1 || setup->scenes[testIndex].groupId == targetGroupId) {
-              nextIndex = testIndex;
-              break;
-            }
+          if ((targetGroupId == 2 || targetGroupId == -1) && systemState.activeSceneG2 != "") {
+            toggleScene(systemState.activeSceneG2);
           }
-          
-          if (nextIndex != -1 && nextIndex != currentIndex) {
-            if (targetGroupId == 2 && systemState.activeSceneG2 != "") {
-              toggleScene(systemState.activeSceneG2);
-            } else if (targetGroupId == 1 && systemState.activeScene != "") {
-              toggleScene(systemState.activeScene);
-            }
-            toggleScene(setup->scenes[nextIndex].id);
-          } else if (nextIndex != -1 && currentIndex == -1) {
-            toggleScene(setup->scenes[nextIndex].id);
-          }
+        } else {
+          triggerNextSceneSequence(targetGroupId);
         }
+        lastSceneTrigger[button - 1] = millis();
       }
     }
   }
@@ -1115,36 +1216,7 @@ void handlePedalAction(int button, const String& state) {
       } else {
         // Appui court: show suivant
         audioManager.setMode(SOUND_OFF);
-        
-        if (!setup->shows.empty()) {
-          // First, stop current show if running
-          if (showPlayback.running && systemState.activeShow.length() > 0) {
-            Show* show = sceneManager.getShow(systemState.activeShow);
-            if (show) show->isRunning = false;
-          }
-          
-          int currentIndex = -1;
-          for (size_t i = 0; i < setup->shows.size(); ++i) {
-            if (setup->shows[i].id == systemState.activeShow) {
-              currentIndex = i;
-              break;
-            }
-          }
-          int nextIndex = (currentIndex + 1) % setup->shows.size();
-          
-          // Start the next show
-          Show* nextShow = sceneManager.getShow(setup->shows[nextIndex].id);
-          if (nextShow && !nextShow->steps.empty()) {
-            nextShow->isRunning = true;
-            showPlayback.running = true;
-            showPlayback.showId = nextShow->id;
-            showPlayback.currentStep = 0;
-            showPlayback.stepStartTime = millis();
-            showPlayback.inTransition = (nextShow->steps[0].transitionTime > 0);
-            systemState.activeShow = nextShow->id;
-            applySceneValues(nextShow->steps[0].sceneId);
-          }
-        }
+        triggerNextShowSequence();
       }
     }
   }
@@ -1155,6 +1227,10 @@ void handlePedalAction(int button, const String& state) {
     else if (cfg.action == "sound_beat") targetMode = SOUND_BEAT;
     else if (cfg.action == "sound_color") targetMode = SOUND_COLOR;
     else if (cfg.action == "sound_vu") targetMode = SOUND_VU;
+    else if (cfg.action == "sound_scene_g1") targetMode = SOUND_SCENE_G1;
+    else if (cfg.action == "sound_scene_g2") targetMode = SOUND_SCENE_G2;
+    else if (cfg.action == "sound_scene_seq") targetMode = SOUND_SCENE_SEQ;
+    else if (cfg.action == "sound_scene_rnd") targetMode = SOUND_SCENE_RND;
     
     if (audioManager.getMode() == targetMode) {
       // Already active → turn off
@@ -1231,13 +1307,17 @@ void handleBlePedalAction(uint8_t ccId, uint8_t value) {
           if (p) {
             if (p->strobeChannel.enabled) {
               uint16_t addr = i.dmxAddress + p->strobeChannel.offset;
-              if (addr >= 1 && addr <= 512) dmxEngine.setChannelValue(addr, p->strobeChannel.value);
+              if (addr >= 1 && addr <= 512) dmxEngine.setChannelOverride(addr, p->strobeChannel.value);
             }
             for (const auto& ch : p->channels) {
               if (isColorChannel(ch.name, "red") || isColorChannel(ch.name, "rouge") || 
                   isColorChannel(ch.name, "green") || isColorChannel(ch.name, "vert") ||
                   isColorChannel(ch.name, "blue") || isColorChannel(ch.name, "bleu") ||
                   isColorChannel(ch.name, "white") || isColorChannel(ch.name, "blanc")) {
+                uint16_t addr = i.dmxAddress + ch.offset;
+                if (addr >= 1 && addr <= 512) dmxEngine.setChannelOverride(addr, 255);
+              }
+              if (ch.type == "dimmer") {
                 uint16_t addr = i.dmxAddress + ch.offset;
                 if (addr >= 1 && addr <= 512) dmxEngine.setChannelOverride(addr, 255);
               }
@@ -1314,43 +1394,19 @@ void handleBlePedalAction(uint8_t ccId, uint8_t value) {
         if (action == "scene_sequence_g1") targetGroupId = 1;
         if (action == "scene_sequence_g2") targetGroupId = 2;
 
-        if (setup && !setup->scenes.empty()) {
-          int currentIndex = -1;
-          for (size_t i = 0; i < setup->scenes.size(); ++i) {
-            if (targetGroupId == 1 || targetGroupId == -1) {
-              if (setup->scenes[i].id == systemState.activeScene && setup->scenes[i].groupId == 1) {
-                currentIndex = i;
-                break;
-              }
-            }
-            if (targetGroupId == 2 || targetGroupId == -1) {
-              if (setup->scenes[i].id == systemState.activeSceneG2 && setup->scenes[i].groupId == 2) {
-                currentIndex = i;
-                break;
-              }
-            }
+        static uint32_t lastSceneTrigger[16] = {0};
+        if (millis() - lastSceneTrigger[actionIndex] < 300) {
+          // Double click: turn off the active scene(s) for this target group
+          if ((targetGroupId == 1 || targetGroupId == -1) && systemState.activeScene != "") {
+            toggleScene(systemState.activeScene);
           }
-          
-          int nextIndex = -1;
-          for (size_t i = 1; i <= setup->scenes.size(); ++i) {
-            int testIndex = (currentIndex + i) % setup->scenes.size();
-            if (targetGroupId == -1 || setup->scenes[testIndex].groupId == targetGroupId) {
-              nextIndex = testIndex;
-              break;
-            }
+          if ((targetGroupId == 2 || targetGroupId == -1) && systemState.activeSceneG2 != "") {
+            toggleScene(systemState.activeSceneG2);
           }
-          
-          if (nextIndex != -1 && nextIndex != currentIndex) {
-            if (targetGroupId == 2 && systemState.activeSceneG2 != "") {
-              toggleScene(systemState.activeSceneG2); // turn off current G2
-            } else if (targetGroupId == 1 && systemState.activeScene != "") {
-              toggleScene(systemState.activeScene); // turn off current G1
-            }
-            toggleScene(setup->scenes[nextIndex].id);
-          } else if (nextIndex != -1 && currentIndex == -1) {
-            toggleScene(setup->scenes[nextIndex].id);
-          }
+        } else {
+          triggerNextSceneSequence(targetGroupId);
         }
+        lastSceneTrigger[actionIndex] = millis();
       }
     }
   }
@@ -1368,31 +1424,7 @@ void handleBlePedalAction(uint8_t ccId, uint8_t value) {
         dmxEngine.restoreVirtualConsole();
       } else {
         audioManager.setMode(SOUND_OFF);
-        if (setup && !setup->shows.empty()) {
-          if (showPlayback.running && systemState.activeShow.length() > 0) {
-            Show* show = sceneManager.getShow(systemState.activeShow);
-            if (show) show->isRunning = false;
-          }
-          int currentIndex = -1;
-          for (size_t i = 0; i < setup->shows.size(); ++i) {
-            if (setup->shows[i].id == systemState.activeShow) {
-              currentIndex = i;
-              break;
-            }
-          }
-          int nextIndex = (currentIndex + 1) % setup->shows.size();
-          Show* nextShow = sceneManager.getShow(setup->shows[nextIndex].id);
-          if (nextShow && !nextShow->steps.empty()) {
-            nextShow->isRunning = true;
-            showPlayback.running = true;
-            showPlayback.showId = nextShow->id;
-            showPlayback.currentStep = 0;
-            showPlayback.stepStartTime = millis();
-            showPlayback.inTransition = (nextShow->steps[0].transitionTime > 0);
-            systemState.activeShow = nextShow->id;
-            applySceneValues(nextShow->steps[0].sceneId);
-          }
-        }
+        triggerNextShowSequence();
       }
     }
   }
@@ -1402,6 +1434,10 @@ void handleBlePedalAction(uint8_t ccId, uint8_t value) {
     else if (action == "sound_beat") targetMode = SOUND_BEAT;
     else if (action == "sound_color") targetMode = SOUND_COLOR;
     else if (action == "sound_vu") targetMode = SOUND_VU;
+    else if (action == "sound_scene_g1") targetMode = SOUND_SCENE_G1;
+    else if (action == "sound_scene_g2") targetMode = SOUND_SCENE_G2;
+    else if (action == "sound_scene_seq") targetMode = SOUND_SCENE_SEQ;
+    else if (action == "sound_scene_rnd") targetMode = SOUND_SCENE_RND;
     
     if (audioManager.getMode() == targetMode) {
       audioManager.setMode(SOUND_OFF);
@@ -1937,13 +1973,17 @@ void setupServer() {
             if (p) {
               if (p->strobeChannel.enabled) {
                 uint16_t addr = i.dmxAddress + p->strobeChannel.offset;
-                if (addr >= 1 && addr <= 512) dmxEngine.setChannelValue(addr, p->strobeChannel.value);
+                if (addr >= 1 && addr <= 512) dmxEngine.setChannelOverride(addr, p->strobeChannel.value);
               }
               for (const auto& ch : p->channels) {
                 if (isColorChannel(ch.name, "red") || isColorChannel(ch.name, "rouge") || 
                     isColorChannel(ch.name, "green") || isColorChannel(ch.name, "vert") ||
                     isColorChannel(ch.name, "blue") || isColorChannel(ch.name, "bleu") ||
                     isColorChannel(ch.name, "white") || isColorChannel(ch.name, "blanc")) {
+                  uint16_t addr = i.dmxAddress + ch.offset;
+                  if (addr >= 1 && addr <= 512) dmxEngine.setChannelOverride(addr, 255);
+                }
+                if (ch.type == "dimmer") {
                   uint16_t addr = i.dmxAddress + ch.offset;
                   if (addr >= 1 && addr <= 512) dmxEngine.setChannelOverride(addr, 255);
                 }

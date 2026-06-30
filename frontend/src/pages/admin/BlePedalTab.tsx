@@ -19,12 +19,16 @@ const ACTION_LABELS: Record<PedalAction, string> = {
   sound_beat: '🥁 Son : Beat',
   sound_color: '🎨 Son : Couleur',
   sound_vu: '📊 Son : VU-Mètre',
+  sound_scene_g1: '🎵 Son : Scène Suivante (Groupe 1)',
+  sound_scene_g2: '🎵 Son : Scène Suivante (Groupe 2)',
+  sound_scene_seq: '🎵 Son : Scène Suivante (Tous Groupes)',
+  sound_scene_rnd: '🎵 Son : Scène Aléatoire',
 };
 
 const ACTION_GROUPS = [
   { label: 'Effets', actions: ['none', 'smoke', 'strobe'] as PedalAction[] },
   { label: 'Scènes & Shows', actions: ['scene', 'show', 'scene_sequence', 'scene_sequence_g1', 'scene_sequence_g2', 'show_sequence'] as PedalAction[] },
-  { label: 'Audio Réactif', actions: ['sound_volume', 'sound_beat', 'sound_color', 'sound_vu'] as PedalAction[] },
+  { label: 'Audio Réactif', actions: ['sound_volume', 'sound_beat', 'sound_color', 'sound_vu', 'sound_scene_g1', 'sound_scene_g2', 'sound_scene_seq', 'sound_scene_rnd'] as PedalAction[] },
 ];
 
 export const BlePedalTab = () => {
